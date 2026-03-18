@@ -23,20 +23,32 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   └── requirements.md        # 需求規格書
 ├── src/
 │   ├── app/                   # Next.js App Router 頁面
+│   │   ├── login/page.tsx     # 登入頁面
 │   │   ├── page.tsx           # 首頁 — 專案列表
 │   │   ├── project/
-│   │   │   ├── new/page.tsx   # 建立新專案
+│   │   │   ├── new/page.tsx   # 建立新專案（含範本選擇）
 │   │   │   └── [id]/
-│   │   │       ├── page.tsx   # 專案總覽儀表板
+│   │   │       ├── page.tsx   # 專案總覽儀表板（含 AI 健康度）
 │   │   │       ├── step/
 │   │   │       │   └── [n]/page.tsx  # 步驟表單頁面
+│   │   │       ├── coaching/page.tsx # 輔導紀錄
 │   │   │       └── export/page.tsx   # 成果匯出
+│   │   ├── admin/
+│   │   │   ├── dashboard/page.tsx    # 管理員儀表板
+│   │   │   ├── users/page.tsx        # 帳號管理
+│   │   │   └── settings/page.tsx     # 系統設定
+│   │   ├── learn/             # 教學中心
+│   │   │   ├── page.tsx       # 教學首頁
+│   │   │   └── [topic]/page.tsx  # 各主題教學頁面
 │   │   └── api/               # API Routes
+│   │       ├── auth/          # 登入/登出/密碼管理
 │   │       ├── project/       # 專案 CRUD
 │   │       ├── step/          # 步驟資料存取
 │   │       ├── upload/        # 檔案上傳
 │   │       ├── analyze/       # 數據分析 (CSV 解析、圖表數據)
 │   │       ├── chat/          # AI Agent 對話
+│   │       ├── search/        # 文獻搜尋
+│   │       ├── coaching/      # 輔導紀錄 CRUD
 │   │       └── export/        # 報告匯出
 │   ├── components/
 │   │   ├── layout/            # 共用版面 (Sidebar, Header)
@@ -59,12 +71,20 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   │   ├── chat/              # AI Agent 對話元件
 │   │   │   └── AgentChat.tsx
 │   │   └── ui/                # 通用 UI 元件
+│   ├── content/
+│   │   └── learn/             # 教學中心靜態內容 (MDX)
+│   │       ├── qcc/           # QCC 品管圈教學
+│   │       ├── pdca/          # PDCA 循環教學
+│   │       ├── hfmea/         # HFMEA 教學
+│   │       └── qc7tools/      # 品管七大手法教學
 │   ├── lib/
 │   │   ├── db.ts              # 資料庫連線與操作
 │   │   ├── schema.ts          # 資料表 Schema 定義
+│   │   ├── auth.ts            # 認證與授權邏輯
 │   │   ├── claude.ts          # Claude API 封裝
 │   │   ├── csv-parser.ts      # CSV/Excel 解析
 │   │   ├── chart-data.ts      # 圖表數據計算 (柏拉圖排序、累積百分比等)
+│   │   ├── step-linking.ts    # 步驟間數據連動邏輯
 │   │   └── export.ts          # PDF/PPT 匯出邏輯
 │   └── types/
 │       └── index.ts           # TypeScript 型別定義
