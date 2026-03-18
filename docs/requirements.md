@@ -677,7 +677,9 @@
 | 隱私 | 不儲存病患個資，僅處理統計數據 |
 | 密碼安全 | 密碼雜湊儲存（bcrypt），支援密碼強度檢查 |
 
-## 5. 技術架構（建議）
+## 5. 技術架構
+
+### 5.1 技術棧
 
 ```
 Frontend:    Next.js 14+ (App Router) + TypeScript + Tailwind CSS
@@ -693,32 +695,144 @@ Export:      jsPDF + pptxgenjs
 Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx)
 ```
 
-### 部署架構
+### 5.2 技術選型理由
+
+QCC Helper 與同院另一專案 **CQI365 Hospital**（醫療品質管理平台）同時部署於院內 Docker 環境，兩者技術棧有所不同，各有其設計背景：
+
+#### 兩專案技術比較
+
+| 面向 | QCC Helper（本專案） | CQI365 Hospital |
+|------|---------------------|-----------------|
+| **前端框架** | Next.js 14 (App Router, SSR) | React SPA (Vite) + Nginx 靜態託管 |
+| **後端** | Next.js API Routes（內建） | Hono API（獨立 Node.js 服務） |
+| **ORM** | Prisma | Drizzle |
+| **專案結構** | 單一 Next.js 專案 | Turborepo monorepo（多 app） |
+| **資料庫** | PostgreSQL 16 | PostgreSQL 16（相同） |
+| **部署方式** | Docker Compose | Docker Compose（相同） |
+
+#### 差異原因分析
+
+**CQI365 Hospital — 遷移型架構**
+
+CQI365 原本建構在 Supabase（雲端 BaaS）上，前端為 React SPA 直接呼叫 Supabase API。後因醫院資安政策，決定遷移至院內 Docker 部署。因此：
+- 前端維持 **React SPA** 架構，避免遷移時大幅改寫
+- 後端改用 **Hono API** 取代 Supabase Edge Functions，作為獨立服務
+- 使用 **Turborepo monorepo** 是因為包含多個子應用（hospital、doctor、admin 等），需要共用程式碼
+- 使用 **Drizzle ORM** 搭配 Hono 生態系
+- 資料庫有 **49 張資料表**，屬於大型平台
+
+**QCC Helper — 全新設計架構**
+
+QCC Helper 從零開始設計，無歷史包袱，因此選擇更精簡的全端方案：
+- **Next.js App Router** 前後端一體，減少服務數量與維護成本
+- **Prisma ORM** schema-first 設計，自動產生 TypeScript 型別與 migration，對單一專案開發效率高
+- **單一專案結構**，因為只有一個應用，不需 monorepo
+- 醫院資訊室未來接手時，只需了解一套框架
+
+#### 技術選型原則
+
+雖然兩專案技術棧不同，但遵循相同的核心原則：
+
+| 原則 | 說明 |
+|------|------|
+| 零雲端依賴 | 不依賴 Supabase、Firebase、Cloudflare 等外部雲服務 |
+| 院內網路部署 | 所有服務運行在醫院內網 Docker 環境，不對外開放 |
+| PostgreSQL 統一 | 兩專案共用同一個 PostgreSQL 16 container（不同 database） |
+| TypeScript 統一 | 兩專案前後端皆使用 TypeScript，降低維護學習成本 |
+| Docker 統一 | 兩專案皆以 Docker Compose 編排，統一啟停與備份流程 |
+
+### 5.3 共用部署架構
+
+兩個專案部署在同一台 Docker Host，共用 Nginx 反向代理與 PostgreSQL：
 
 ```
-┌─────────────────────────────────────────────┐
-│  Docker Host (醫院伺服器)                      │
-│                                             │
-│  ┌─────────┐   ┌──────────┐   ┌──────────┐ │
-│  │  Nginx   │──→│ QCC App  │──→│PostgreSQL│ │
-│  │ :80/:443 │   │ :3000    │   │ :5432    │ │
-│  └────┬─────┘   └──────────┘   └──────────┘ │
-│       │         ┌──────────┐                 │
-│       └────────→│ Other App│  (其他專案)      │
-│                 │ :xxxx    │                 │
-│                 └──────────┘                 │
-│                                             │
-│  Volumes: qcc-db-data, qcc-uploads          │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Docker Host (醫院伺服器)                                       │
+│                                                              │
+│  ┌──────────────┐                                            │
+│  │    Nginx     │  反向代理 (:80/:443)                         │
+│  │              │                                            │
+│  │  /qcc/* ─────┼──→ ┌──────────────┐                        │
+│  │              │    │  QCC Helper  │  Next.js (:3000)       │
+│  │              │    └──────┬───────┘                        │
+│  │              │           │                                │
+│  │  /cqi/* ─────┼──→ ┌──────────────┐     ┌──────────────┐  │
+│  │   or         │    │  CQI365 App  │────→│  CQI365 API  │  │
+│  │  subdomain   │    │  React SPA   │     │  Hono (:3100) │  │
+│  └──────────────┘    │  Nginx(:5170)│     └──────┬───────┘  │
+│                      └──────────────┘            │          │
+│                                                  │          │
+│  ┌──────────────┐                                │          │
+│  │ PostgreSQL 16│ (:5432) ←──────────────────────┘          │
+│  │              │                                            │
+│  │  DB: qcc_helper   ← QCC Helper 專用 (Prisma)             │
+│  │  DB: hospital     ← CQI365 專用 (Drizzle)                │
+│  └──────────────┘                                            │
+│                                                              │
+│  Volumes:                                                    │
+│  ├── pg-data          (PostgreSQL 資料持久化)                  │
+│  ├── qcc-uploads      (QCC 上傳檔案)                          │
+│  └── cqi365-uploads   (CQI365 上傳檔案)                       │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### 未來遷移路徑
+#### 路由方式選擇
+
+| 方式 | 範例 | 適用情境 |
+|------|------|---------|
+| **子路徑** | `hospital.local/qcc/`、`hospital.local/cqi/` | 只有一個 domain/IP，設定簡單 |
+| **子網域** | `qcc.hospital.local`、`cqi.hospital.local` | 有 DNS 管理權限，各服務完全獨立 |
+
+建議初期使用**子網域**方式，兩個應用完全獨立，避免路徑衝突問題。
+
+### 5.4 共用 Docker Compose 結構
+
+```yaml
+# docker-compose.yml 預計結構
+services:
+  # ── 共用基礎設施 ──
+  nginx:          # 反向代理 (:80/:443)
+  postgres:       # PostgreSQL 16 (:5432)
+
+  # ── QCC Helper ──
+  qcc-app:        # Next.js (:3000)
+
+  # ── CQI365 Hospital ──
+  cqi365-app:     # React SPA + Nginx (:5170)
+  cqi365-api:     # Hono API (:3100)
+
+volumes:
+  pg-data:
+  qcc-uploads:
+  cqi365-uploads:
+
+networks:
+  hospital-net:   # 所有服務在同一內部網路
+```
+
+### 5.5 未來遷移路徑
 
 初期以 Docker 自建部署，未來醫院資訊室若要納入正式管理：
-1. **資料庫遷移**：pg_dump 匯出 → 匯入院內 PostgreSQL / MySQL（Prisma 支援切換）
-2. **檔案遷移**：uploads volume 直接複製到新路徑
-3. **應用部署**：可沿用 Docker，或改為 bare-metal / VM 部署 Next.js
-4. **歷年資料保留**：PostgreSQL 支援大量歷年資料，可加索引優化查詢
+
+| 階段 | 動作 | 說明 |
+|------|------|------|
+| 1. 資料庫遷移 | `pg_dump` 匯出 → 匯入院內 DB | Prisma / Drizzle 皆支援連線字串切換 |
+| 2. 檔案遷移 | uploads volume 複製到新路徑 | Docker volume 可直接 `cp` 或 `tar` |
+| 3. 應用部署 | 沿用 Docker 或改為 VM | Next.js / Hono 皆可 bare-metal 運行 |
+| 4. 歷年資料 | PostgreSQL 加索引優化查詢 | 品管圈資料逐年累積，需要長期保存 |
+| 5. 統一帳號 | 兩專案共用 User 表或接 LDAP | 視醫院資訊室需求決定 |
+
+### 5.6 維運要點
+
+| 項目 | 指令 / 方式 |
+|------|------------|
+| 啟動所有服務 | `docker compose up -d` |
+| 停止所有服務 | `docker compose down` |
+| 查看日誌 | `docker compose logs -f <service>` |
+| 資料庫備份 | `docker exec postgres pg_dumpall -U postgres > backup.sql` |
+| 資料庫還原 | `cat backup.sql \| docker exec -i postgres psql -U postgres` |
+| 上傳檔案備份 | `docker cp <container>:/uploads ./uploads-backup` |
+| 定期備份建議 | cron job 每日備份 DB + uploads，保留 30 天 |
 
 ## 6. 資料模型概要
 
