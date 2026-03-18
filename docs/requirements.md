@@ -904,11 +904,12 @@
 Frontend:    Next.js 14+ (App Router) + TypeScript + Tailwind CSS
 Backend:     Next.js API Routes
 Database:    PostgreSQL 16 (開發與正式環境皆使用)
+             — 使用 pg_trgm + 全文搜尋（知識庫搜尋用）
 ORM:         Prisma (schema-first, 自動 migration)
 Auth:        bcrypt (密碼雜湊) + JWT / Session cookie
-AI:          Claude API (對話、分析、文件擷取)
+AI:          Claude API (對話、分析、文件擷取、草稿產生)
 Search:      Web Search API (文獻搜尋)
-Charts:      ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖)
+Charts:      ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖、趨勢圖、熱力圖)
 File:        Docker volume 掛載 (/uploads)
 Export:      jsPDF + pptxgenjs
 Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx)
@@ -1080,6 +1081,11 @@ networks:
    │ ProjectTemplate  │     │  SystemSetting   │
    │   (專案範本)      │     │   (系統設定)      │
    └──────────────────┘     └──────────────────┘
+
+   ┌──────────────────┐     ┌──────────────────┐
+   │ ProjectBenefit   │     │    FollowUp      │
+   │  (效益填報)       │     │ (改善後追蹤)      │
+   └──────────────────┘     └──────────────────┘
 ```
 
 ### 6.2 各資料表欄位定義
@@ -1122,6 +1128,10 @@ networks:
 | period_end | DATE | 活動結束日 |
 | status | ENUM | `active` / `completed` / `archived` |
 | theme_type | ENUM | `reduction`（降低類）/ `improvement`（提升類） |
+| topic_category | VARCHAR(100) | 改善主題分類（如：病人安全、流程效率、感染管控、服務品質）— 用於全院統計分析 |
+| is_featured | BOOLEAN | 是否為代表圈隊（管理員標記，用於評鑑報告，預設 false） |
+| is_public | BOOLEAN | 是否公開為知識庫範例（去識別化後供其他圈隊參考，預設 false） |
+| continuation_of | UUID (FK → Project, nullable) | 延續自哪個專案（用於持續改善追蹤，3.17.5） |
 | template_id | UUID (FK → ProjectTemplate, nullable) | 來源範本 |
 | created_by | UUID (FK → User) | 建立者 |
 | created_at | TIMESTAMP | 建立時間 |
@@ -1150,7 +1160,9 @@ networks:
 | step_number | INT (1-10) | 步驟編號 |
 | status | ENUM | `not_started` / `in_progress` / `completed` |
 | input_mode | ENUM | `online` / `upload` / `mixed` |
+| view_mode | ENUM | `quick`（精簡模式）/ `full`（完整模式），預設 `quick` |
 | data | JSONB | 步驟結構化數據（詳見 6.3） |
+| ai_draft_fields | JSONB | AI 草稿欄位追蹤，記錄哪些欄位由 AI 產生尚未確認。格式：`{ "field_path": { "status": "draft" \| "confirmed", "generated_at": "timestamp" } }` |
 | completed_at | TIMESTAMP | 完成時間 |
 | created_at | TIMESTAMP | 建立時間 |
 | updated_at | TIMESTAMP | 更新時間 |
@@ -1287,6 +1299,38 @@ networks:
 | `hospital_logo_path` | `""` | 院徽圖片路徑 |
 | `report_header_text` | `""` | 報告頁首文字 |
 | `report_footer_text` | `""` | 報告頁尾文字 |
+
+#### ProjectBenefit（效益填報 — 3.17.4）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) UNIQUE | 所屬專案（一對一） |
+| benefit_type | ENUM | `time_saving` / `cost_saving` / `quality_improvement` / `satisfaction` / `other` |
+| description | TEXT | 效益描述（如「每年節省 200 小時護理人力」） |
+| estimated_value | DECIMAL | 量化效益數值（選填） |
+| estimated_unit | VARCHAR(50) | 單位（如：小時/年、元/月、件/年） |
+| is_ai_estimated | BOOLEAN | 是否為 AI 推估值（預設 false） |
+| created_by | UUID (FK → User) | 填報者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### FollowUp（改善後追蹤 — 3.17.5）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| follow_up_type | ENUM | `3_month` / `6_month` / `12_month` |
+| scheduled_date | DATE | 預定追蹤日期（自動從 period_end 推算） |
+| actual_date | DATE (nullable) | 實際回填日期 |
+| status | ENUM | `pending` / `completed` / `skipped` |
+| follow_up_rate | DECIMAL (nullable) | 追蹤時的指標數值（如不良率） |
+| is_sustained | BOOLEAN (nullable) | 改善效果是否持續 |
+| notes | TEXT | 追蹤備註 |
+| created_by | UUID (FK → User, nullable) | 回填者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
 
 ### 6.3 Steps.data JSON 結構定義
 
@@ -1535,7 +1579,8 @@ networks:
     "strengths": "string — 本次活動優點",
     "improvements": "string — 待改進事項",
     "next_topic_suggestion": "string — 下期活動主題建議"
-  }
+  },
+  "benefit_summary": "string — 預估效益描述（選填，可由 AI 產生草稿）"
 }
 ```
 
@@ -1552,11 +1597,15 @@ networks:
 /project/:id/export           → 成果匯出頁面
 /project/:id/coaching         → 輔導紀錄（建議追蹤、歷次紀錄）
 /project/:id/coaching/prepare → 輔導準備輸出（進度摘要、待討論事項）
+/project/:id/follow-up        → 改善後追蹤回填（3/6/12 個月追蹤數據）
 /admin/dashboard              → 管理員儀表板（全院進度、卡關預警、統計）
 /admin/users                  → 帳號管理（品管圈管理員、網管）
 /admin/templates              → 範本管理（新增/編輯範本專案）
 /admin/report-settings        → 報告範本設定（院徽、頁面配置）
 /admin/coaching/monthly       → 月會報告輸出（全院進度總表、輔導紀錄表）
+/admin/reports                → 評鑑報告產出（年度成果摘要、指標改善對照表）
+/admin/knowledge              → 全院知識庫（歷年品管圈經驗搜尋與瀏覽）
+/admin/analytics              → 全院品質趨勢分析（年度趨勢、科別熱力圖）— 第二版
 /admin/settings               → 系統設定（網管）
 /learn                        → 教學中心首頁
 /learn/:topic                 → 教學文章頁面（QCC/PDCA/HFMEA/品管七大手法）
@@ -1594,7 +1643,7 @@ networks:
 | GET | `/api/projects/:id/steps/:n` | 取得步驟 n 的完整 data | 專案成員 / admin |
 | PUT | `/api/projects/:id/steps/:n` | 更新步驟 n 的 data（自動儲存用） | 專案成員 |
 | PUT | `/api/projects/:id/steps/:n/status` | 更新步驟狀態（完成/退回進行中） | 專案成員 |
-| GET | `/api/projects/:id/steps/:n/completeness` | 檢查步驟必填項完成度 | 專案成員 / admin |
+| GET | `/api/projects/:id/steps/:n/completeness` | 檢查步驟建議欄位填寫進度（非阻擋式，僅供參考） | 專案成員 / admin |
 | GET | `/api/projects/:id/health` | AI 專案健康度分析 | 專案成員 / admin |
 
 ### 8.4 圈員 API
@@ -1631,6 +1680,7 @@ networks:
 | POST | `/api/chat` | 發送對話訊息，回傳 AI 回應（streaming） | 專案成員 / qcc_admin |
 | GET | `/api/projects/:id/chat/history` | 取得對話紀錄 | 專案成員 / admin |
 | POST | `/api/search/literature` | 文獻搜尋 | 專案成員 / qcc_admin |
+| POST | `/api/projects/:id/steps/:n/ai-draft` | AI 幫我填：依現有數據產生該步驟的完整草稿，回傳草稿內容供前端填入 | 專案成員 |
 
 ### 8.8 輔導紀錄 API
 
@@ -1669,7 +1719,29 @@ networks:
 | GET | `/api/admin/settings` | 系統設定列表 | sys_admin |
 | PUT | `/api/admin/settings` | 更新系統設定 | sys_admin |
 
-### 8.11 API 通用規範
+### 8.11 效益與追蹤 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/projects/:id/benefits` | 取得效益填報 | 專案成員 / admin |
+| PUT | `/api/projects/:id/benefits` | 新增或更新效益填報 | 專案成員 |
+| GET | `/api/projects/:id/follow-ups` | 取得追蹤排程與回填狀態 | 專案成員 / admin |
+| PUT | `/api/projects/:id/follow-ups/:fid` | 回填追蹤數據 | 專案成員 |
+
+### 8.12 知識庫與評鑑報告 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/knowledge/search` | 知識庫搜尋（依關鍵字、科別、主題分類） | 已登入 |
+| GET | `/api/knowledge/root-causes` | 歷年常見真因庫（依主題分類聚合） | 已登入 |
+| GET | `/api/knowledge/countermeasures` | 歷年有效對策庫（依改善幅度排序） | 已登入 |
+| POST | `/api/admin/export/annual-report` | 產出年度品管圈成果摘要（評鑑用 PDF） | qcc_admin / sys_admin |
+| GET | `/api/admin/analytics/trends` | 全院品質趨勢數據（逐年統計） | qcc_admin / sys_admin |
+| GET | `/api/admin/analytics/department-heatmap` | 科別參與熱力圖數據 | qcc_admin / sys_admin |
+| PUT | `/api/admin/projects/:id/featured` | 標記/取消代表圈隊 | qcc_admin / sys_admin |
+| PUT | `/api/admin/projects/:id/public` | 設定/取消知識庫公開 | qcc_admin / sys_admin |
+
+### 8.13 API 通用規範
 
 **回應格式：**
 
@@ -1715,10 +1787,12 @@ networks:
 ### Phase 2 — 十大步驟表單（預估 2-3 sprints）
 
 - 步驟 1~10 的表單元件（依 Steps.data JSON 結構）
+- 精簡模式 / 完整模式切換（預設精簡模式）
 - 自動儲存機制（debounce 3 秒）
-- 步驟完成度檢核（必填/選填判斷）
-- 步驟間數據連動（上游修改 → 下游警示）
+- 步驟完成度提示（建議欄位標記，非阻擋式）
+- 步驟間數據柔性連動（有上游數據時自動帶入，無則留空）
 - 檔案上傳功能（CSV/Excel/圖片）
+- 自由導航：所有步驟可任意順序填寫
 
 ### Phase 3 — 圖表與快速工具（預估 2 sprints）
 
@@ -1733,7 +1807,9 @@ networks:
 
 - Claude API 串接（streaming 對話）
 - 各步驟 system prompt 建立
-- AI 專案健康度分析
+- **「AI 幫我填」功能**：AI 產生步驟草稿 → 填入表單 → 同仁確認
+- AI 草稿標記與確認機制（淺藍背景 → 編輯後變白色）
+- AI 專案健康度建議（友善教練語氣，可收合）
 - 文獻搜尋功能
 - 對話紀錄儲存與回溯
 
@@ -1745,11 +1821,16 @@ networks:
 - 輔導準備摘要匯出
 - 管理員全院進度總覽
 
-### Phase 6 — 教學中心 + 收尾（預估 1 sprint）
+### Phase 6 — 教學中心 + 醫院層級基礎功能（預估 1-2 sprints）
 
 - MDX 教學內容撰寫（QCC、PDCA、HFMEA、品管七大手法）
 - 教學中心頁面與導航
-- 管理員儀表板卡關預警
+- 管理員儀表板卡關預警（一眼總覽卡片）
+- **評鑑報告產出**（年度成果摘要 PDF，3.17.1 基礎版）
+- **知識庫基礎瀏覽**（已完成專案依科別/主題分類瀏覽，3.17.3 基礎版）
+- **SOP 標準化追蹤提醒**（3.17.5 基礎版）
+- 效益填報欄位（選填）
+- 匯出容錯處理（缺漏欄位以「待補充」顯示，不阻擋匯出）
 - 整體 UI 微調與錯誤處理
 - 部署測試
 
@@ -1759,8 +1840,11 @@ networks:
 - Word 文件上傳的 AI 擷取（第一版先支援 Excel/CSV/圖片）
 - 報告範本自訂（第一版使用系統預設範本）
 - 輔導員正式審核簽核流程（管理員可檢視評論但暫不設簽核）
-- 歷史專案公開參考（需去識別化機制）
 - 管理員儀表板的年度統計與圈隊評比
+- 全院品質趨勢追蹤（年度趨勢圖、科別熱力圖、主題詞雲，3.17.2）
+- AI 智慧搜尋知識庫（相似專案推薦、真因庫、有效對策庫，3.17.3 進階版）
+- 效益量化與投資回報分析（AI 推估、全院彙總，3.17.4 進階版）
+- 改善後 3/6/12 個月追蹤回填（3.17.5 進階版）
 - 通知與提醒系統
 - 登入記錄稽核報表
 

@@ -50,9 +50,11 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   │       ├── step/          # 步驟資料存取
 │   │       ├── upload/        # 檔案上傳
 │   │       ├── analyze/       # 數據分析 (CSV 解析、圖表數據)
-│   │       ├── chat/          # AI Agent 對話
+│   │       ├── chat/          # AI Agent 對話 + AI 幫我填
 │   │       ├── search/        # 文獻搜尋
 │   │       ├── coaching/      # 輔導紀錄 CRUD
+│   │       ├── knowledge/     # 知識庫搜尋、真因庫、對策庫
+│   │       ├── admin/         # 管理員 API（儀表板、評鑑報告、趨勢分析）
 │   │       └── export/        # 報告匯出
 │   ├── components/
 │   │   ├── layout/            # 共用版面 (Sidebar, Header)
