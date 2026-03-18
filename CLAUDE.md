@@ -110,10 +110,11 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 - Agent 回應需包含結構化數據（如圖表數據）時，使用 JSON 格式回傳
 
 ### 圖表產生
-- 柏拉圖：ECharts bar + line 複合圖，X 軸分類由高到低排序，右 Y 軸累積百分比
-- 魚骨圖：ECharts custom series 或 SVG 自繪
-- 甘特圖：ECharts bar 橫向堆疊
-- 雷達圖：ECharts radar
+- 柏拉圖：ECharts bar + line 複合圖，X 軸分類由高到低排序（「其他」放最末），左 Y 軸次數，右 Y 軸累積百分比，標示 80% 線，累積百分比起始值為 0%
+- 魚骨圖：ECharts custom series 或 SVG 自繪，預設 5M1E 分類（Man/Machine/Material/Method/Measurement/Environment）
+- 甘特圖：ECharts bar 橫向堆疊，虛線＝預定進度、實線＝實際進度
+- 雷達圖：ECharts radar，改善前（虛線）vs 改善後（實線）雙線疊加
+- 改善前後對比：兩張柏拉圖並排顯示
 
 ### 常用指令
 
