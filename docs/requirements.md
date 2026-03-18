@@ -572,6 +572,12 @@
 - 同仁可點擊「重新同步」按鈕，主動拉取上游最新數據
 - **若上游步驟尚無數據，下游步驟仍可正常填寫**（欄位留空或手動輸入）
 
+**上游快照機制（upstream_snapshot）：**
+- 下游步驟（步驟五、七、九）標記「完成」時，自動將上游關鍵數值快照存入 `Step.data.upstream_snapshot`
+- 之後即使上游數據被修改，下游的計算與報告仍基於快照值，避免數據邏輯斷裂
+- 同仁主動按「重新同步」時，快照才會更新
+- 快照包含凍結時間戳，方便回溯「當時是基於什麼數據做的分析」
+
 ---
 
 ### 3.9 步驟完成度與彈性流程
@@ -907,13 +913,83 @@ Database:    PostgreSQL 16 (開發與正式環境皆使用)
              — 使用 pg_trgm + 全文搜尋（知識庫搜尋用）
 ORM:         Prisma (schema-first, 自動 migration)
 Auth:        bcrypt (密碼雜湊) + JWT / Session cookie
-AI:          Claude API (對話、分析、文件擷取、草稿產生)
+AI:          LLM Adapter 抽象層 — 預設 Claude API，可切換地端模型
+             — 預設: Claude API (@anthropic-ai/sdk)
+             — 備選: Ollama / vLLM（院內 Air-gapped 場景）
+PII Filter:  本地端個資遮蔽過濾器（送 LLM 前攔截）
 Search:      Web Search API (文獻搜尋)
 Charts:      ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖、趨勢圖、熱力圖)
 File:        Docker volume 掛載 (/uploads)
-Export:      jsPDF + pptxgenjs
+Export:      Puppeteer (HTML→PDF) 或 jsPDF（spike 後決定）+ pptxgenjs
 Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx)
 ```
+
+### 5.1.1 LLM 抽象層設計
+
+醫院可能有嚴格的內網隔離政策（Air-gapped），不允許連外呼叫雲端 API。因此 AI 呼叫層須抽象化，保留切換地端模型的彈性：
+
+```typescript
+// lib/llm-adapter.ts
+interface LLMAdapter {
+  chat(messages: Message[], options?: StreamOptions): AsyncIterable<string>
+  estimateTokens(text: string): number
+}
+
+// 實作
+class ClaudeAdapter implements LLMAdapter { ... }   // 預設：雲端 Claude API
+class OllamaAdapter implements LLMAdapter { ... }   // 備選：地端 Ollama (Llama 3, TAIDE 等)
+class VLLMAdapter implements LLMAdapter { ... }     // 備選：地端 vLLM
+```
+
+- 透過環境變數 `LLM_PROVIDER` 切換（`claude` / `ollama` / `vllm`）
+- **不使用 LangChain** — 抽象層太厚、依賴太多，一個 50 行的 adapter 就夠
+- 所有 adapter 統一回傳 `AsyncIterable<string>`，前端 streaming 邏輯不變
+
+### 5.1.2 PII/PHI 個資遮蔽機制
+
+> **這是資安層級的必要功能，不是可選功能。**
+
+臨床同仁在 CSV、Word 或手打描述中，極容易不小心夾帶病歷號、姓名、身分證字號、出生日期等個資。這些內容若送至雲端 LLM，將構成醫院嚴重的資安事件。
+
+**架構設計：**
+
+```
+使用者輸入 → PII Filter (本地端) → 遮蔽後文本 → LLM API → AI 回應
+                ↓
+         偵測到個資時提示同仁
+```
+
+**遮蔽規則（正則表達式 + 規則引擎）：**
+
+| 個資類型 | 偵測模式 | 遮蔽方式 |
+|---------|---------|---------|
+| 身分證字號 | `/[A-Z][12]\d{8}/` | `[身分證已遮蔽]` |
+| 病歷號 | 醫院病歷號格式（可設定正則） | `[病歷號已遮蔽]` |
+| 電話號碼 | `/09\d{8}/`, `/0\d{1,2}-?\d{6,8}/` | `[電話已遮蔽]` |
+| 姓名疑似 | 2~4 個中文字 + 上下文判斷（「病患」「個案」「家屬」後方） | `[姓名已遮蔽]` |
+| 日期 + 年齡組合 | 「XX歲」「民國XX年生」等 | `[個資已遮蔽]` |
+| Email | 標準 email 格式 | `[Email已遮蔽]` |
+
+**實作要點：**
+- 過濾器位於 `lib/pii-filter.ts`，所有送往 LLM 的文本必須先經過此過濾器
+- API middleware 層自動套用，開發者無需手動呼叫
+- 偵測到個資時：(1) 遮蔽後送出 (2) 前端顯示黃色提示「已自動遮蔽 N 處疑似個資」
+- 管理員可在系統設定中自訂病歷號格式的正則表達式
+- CSV 上傳時，在前端預覽階段就先掃描欄位名稱（如「姓名」「ID」「病歷號」欄），主動提醒同仁移除
+
+### 5.1.3 大檔數據處理策略
+
+同仁可能上傳包含數萬筆原始查檢紀錄的 Excel。直接餵給 LLM 會導致 Token 爆量與高額 API 費用。
+
+**處理策略：**
+
+| 項目 | 規格 |
+|------|------|
+| CSV 行數上限 | 單檔最多 50,000 行。超過時提示同仁「建議先在 Excel 做初步篩選」 |
+| 處理流程 | 後端程式先做資料聚合（Group By 類別 → Count）→ 將「統計後的摘要數據」交給 AI 產生文案與圖表 |
+| 記憶體保護 | 使用 streaming parser（如 `papaparse` streaming mode），不一次讀入全檔 |
+| AI 上下文 | 只傳「聚合後的分類統計表」給 LLM（通常 < 50 行），不傳原始逐筆數據 |
+| 超大檔降級 | 超過 50,000 行時，自動抽樣（隨機取 10%）+ 全量聚合，並在結果中標註「基於抽樣分析」 |
 
 ### 5.2 技術選型理由
 
@@ -1082,10 +1158,10 @@ networks:
    │   (專案範本)      │     │   (系統設定)      │
    └──────────────────┘     └──────────────────┘
 
-   ┌──────────────────┐     ┌──────────────────┐
-   │ ProjectBenefit   │     │    FollowUp      │
-   │  (效益填報)       │     │ (改善後追蹤)      │
-   └──────────────────┘     └──────────────────┘
+   ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+   │ ProjectBenefit   │     │    FollowUp      │     │  Notification    │
+   │  (效益填報)       │     │ (改善後追蹤)      │     │   (系統通知)      │
+   └──────────────────┘     └──────────────────┘     └──────────────────┘
 ```
 
 ### 6.2 各資料表欄位定義
@@ -1132,10 +1208,21 @@ networks:
 | is_featured | BOOLEAN | 是否為代表圈隊（管理員標記，用於評鑑報告，預設 false） |
 | is_public | BOOLEAN | 是否公開為知識庫範例（去識別化後供其他圈隊參考，預設 false） |
 | continuation_of | UUID (FK → Project, nullable) | 延續自哪個專案（用於持續改善追蹤，3.17.5） |
+| current_rate | DECIMAL (nullable) | 現狀值（步驟四完成時同步寫入，供全院統計用） |
+| target_rate | DECIMAL (nullable) | 目標值（步驟五完成時同步寫入） |
+| post_rate | DECIMAL (nullable) | 改善後值（步驟九完成時同步寫入） |
+| improvement_rate | DECIMAL (nullable) | 改善幅度 %（步驟九完成時計算寫入） |
+| goal_achievement_rate | DECIMAL (nullable) | 目標達成率 %（步驟九完成時計算寫入） |
 | template_id | UUID (FK → ProjectTemplate, nullable) | 來源範本 |
 | created_by | UUID (FK → User) | 建立者 |
 | created_at | TIMESTAMP | 建立時間 |
 | updated_at | TIMESTAMP | 更新時間 |
+
+**KPI 欄位同步規則：**
+- 步驟四儲存時 → 自動將 `step4.data.current_rate` 同步至 `Project.current_rate`
+- 步驟五儲存時 → 自動將 `step5.data.target_value` 同步至 `Project.target_rate`
+- 步驟九儲存時 → 同步 `post_rate`、`improvement_rate`、`goal_achievement_rate`
+- 這些欄位為 denormalization，用於管理員儀表板和全院統計的快速查詢，避免跨 JSONB 掃描
 
 #### Member（圈員）
 
@@ -1332,6 +1419,27 @@ networks:
 | created_at | TIMESTAMP | 建立時間 |
 | updated_at | TIMESTAMP | 更新時間 |
 
+#### Notification（系統通知 — 極簡版）
+
+第一版只處理「輔導建議通知」一種情境，不做 Email、不做推播。
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| user_id | UUID (FK → User) | 接收者 |
+| project_id | UUID (FK → Project, nullable) | 相關專案 |
+| type | ENUM | `coaching_suggestion`（輔導建議）/ `follow_up_reminder`（追蹤提醒） |
+| title | VARCHAR(200) | 通知標題（如「○○圈收到新的輔導建議」） |
+| content | VARCHAR(500) | 通知內容摘要 |
+| is_read | BOOLEAN | 是否已讀（預設 false） |
+| link_url | VARCHAR(500) | 點擊後跳轉的頁面路徑 |
+| created_at | TIMESTAMP | 建立時間 |
+
+**觸發規則（第一版）：**
+- 輔導員新增 CoachingSuggestion 時 → 通知該圈所有成員
+- FollowUp 到達 scheduled_date 時 → 通知圈長
+- Header 右上角顯示未讀數量小紅點，點擊展開通知清單
+
 ### 6.3 Steps.data JSON 結構定義
 
 每個步驟的 `data` 欄位（JSONB）儲存該步驟的所有結構化資料。以下定義各步驟的 JSON Schema：
@@ -1421,7 +1529,12 @@ networks:
   ],
   "vital_few": ["string — 關鍵少數項目名稱"],
   "current_rate": "number — 現狀值（不良率 %）",
-  "description": "string — 現況描述文字"
+  "description": "string — 現況描述文字",
+  "chart_config": {
+    "title_override": "string | null — 自訂圖表標題",
+    "color_theme": "string — 顏色主題 (default/blue/green)",
+    "show_data_labels": "boolean — 是否顯示數據標籤"
+  }
 }
 ```
 
@@ -1435,6 +1548,11 @@ networks:
   "calculation_method": "'formula' | 'manual'",
   "theme_type": "'reduction' | 'improvement' — 降低類/提升類",
   "target_value": "number — 目標值",
+  "upstream_snapshot": {
+    "step4_current_rate": "number — 快照步驟四現狀值（標記完成時凍結）",
+    "step4_vital_few": ["string"],
+    "snapshot_at": "timestamp"
+  },
   "reason": "string — 目標設定理由（含計算過程）"
 }
 ```
@@ -1559,6 +1677,17 @@ networks:
   "intangible_averages": {
     "before": { "<criterion>": "number" },
     "after": { "<criterion>": "number" }
+  },
+  "upstream_snapshot": {
+    "step4_current_rate": "number — 快照步驟四現狀值",
+    "step4_categories": ["object — 快照步驟四分類統計"],
+    "step5_target_value": "number — 快照步驟五目標值",
+    "snapshot_at": "timestamp"
+  },
+  "chart_config": {
+    "title_override": "string | null",
+    "color_theme": "string",
+    "show_data_labels": "boolean"
   }
 }
 ```
@@ -1773,9 +1902,12 @@ networks:
 
 - Next.js 專案初始化 + TypeScript + Tailwind CSS
 - Prisma schema 建立 + PostgreSQL 連線
-- Docker Compose 設定（app + db + nginx）
+- Docker Compose 設定（app + db + nginx，含 `client_max_body_size 20m`）
 - 基本頁面佈局（Sidebar、Header）
 - 環境變數與設定檔
+- **LLM Adapter 抽象層**（lib/llm-adapter.ts，預設 ClaudeAdapter）
+- **PII/PHI 遮蔽過濾器**（lib/pii-filter.ts，正則規則引擎）
+- Step 1~10 的 TypeScript 型別定義 + Zod schema（lib/step-schemas.ts）
 
 ### Phase 1 — 認證與專案管理（預估 1 sprint）
 
@@ -1783,6 +1915,7 @@ networks:
 - 角色權限中介層（middleware）
 - 專案 CRUD + 列表頁
 - 帳號管理（管理員/網管）
+- **極簡通知機制**（Notification 表 + Header 小紅點 + 通知清單）
 
 ### Phase 2 — 十大步驟表單（預估 2-3 sprints）
 
@@ -1815,9 +1948,9 @@ networks:
 
 ### Phase 5 — 輔導與匯出（預估 1 sprint）
 
-- 輔導紀錄 CRUD + 建議追蹤
+- 輔導紀錄 CRUD + 建議追蹤（新增時觸發通知）
 - 待討論事項功能
-- PDF 報告匯出（jsPDF）
+- PDF 報告匯出（Puppeteer HTML→PDF，含繁體中文與 ECharts 圖表）
 - 輔導準備摘要匯出
 - 管理員全院進度總覽
 
@@ -1845,7 +1978,7 @@ networks:
 - AI 智慧搜尋知識庫（相似專案推薦、真因庫、有效對策庫，3.17.3 進階版）
 - 效益量化與投資回報分析（AI 推估、全院彙總，3.17.4 進階版）
 - 改善後 3/6/12 個月追蹤回填（3.17.5 進階版）
-- 通知與提醒系統
+- 通知系統擴充（Email 通知、更多通知類型）— 第一版已有極簡版
 - 登入記錄稽核報表
 
 ---
@@ -1876,6 +2009,8 @@ networks:
 | 衝突處理 | 單一使用者場景為主，不處理多人同時編輯同一步驟的衝突 |
 | 離開提醒 | 若有未儲存變更，離開頁面時顯示 `beforeunload` 確認 |
 | 失敗重試 | 儲存失敗時自動重試 1 次，仍失敗則顯示錯誤提示並保留本地資料 |
+| AI 填入保護 | 「AI 幫我填」streaming 期間暫停自動儲存，streaming 完成後觸發一次完整儲存 |
+| KPI 同步 | 步驟四/五/九儲存時，自動同步 KPI 欄位至 Project 表 |
 
 ### 10.3 環境變數規格
 
@@ -1890,8 +2025,15 @@ JWT_SECRET=your-jwt-secret-min-32-chars
 SESSION_TIMEOUT_HOURS=8
 
 # ── AI ──
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
+LLM_PROVIDER=claude                        # claude / ollama / vllm
+ANTHROPIC_API_KEY=sk-ant-xxxxx             # claude 模式必填
+ANTHROPIC_MODEL=claude-sonnet-4-20250514   # claude 模式用
+OLLAMA_BASE_URL=http://localhost:11434     # ollama 模式用
+VLLM_BASE_URL=http://localhost:8000        # vllm 模式用
+
+# ── PII 遮蔽 ──
+PII_FILTER_ENABLED=true                    # 是否啟用個資遮蔽（強烈建議開啟）
+PII_MEDICAL_RECORD_PATTERN=               # 自訂病歷號正則（空白時使用預設）
 
 # ── 檔案上傳 ──
 UPLOAD_DIR=/app/uploads
@@ -1942,5 +2084,6 @@ NODE_ENV=development
 | 方式 | 用途 | 實作 |
 |------|------|------|
 | PNG 下載 | 同仁單獨下載圖表 | `echarts.getDataURL()` |
-| SVG 嵌入 PDF | 報告匯出時嵌入 | ECharts SVG renderer → jsPDF |
+| PDF 嵌入 | 報告匯出時嵌入 | Puppeteer 渲染含圖表的 HTML 頁面 → PDF |
 | JSON 數據 | 儲存於 Steps.data | 圖表可從 JSON 重新渲染 |
+| 設定保存 | 同仁自訂的圖表設定 | 存入 `Steps.data.chart_config`，下次載入時套用 |
