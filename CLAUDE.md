@@ -8,11 +8,13 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 
 - **Frontend**: Next.js 14+ (App Router) + TypeScript + Tailwind CSS
 - **Backend**: Next.js API Routes
-- **Database**: SQLite (via better-sqlite3 開發) / Cloudflare D1 (部署)
+- **Database**: PostgreSQL 16 (Docker 部署) — 開發與正式環境皆使用 PostgreSQL
+- **ORM**: Prisma (schema-first, 自動 migration, TypeScript 型別生成)
 - **AI**: Claude API (@anthropic-ai/sdk)
 - **Charts**: ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖)
-- **File Upload**: 本地 /uploads 目錄 (開發) / Cloudflare R2 (部署)
+- **File Upload**: 本地 /uploads 目錄 (volume 掛載)
 - **Export**: jsPDF (PDF 報告), pptxgenjs (PPT 簡報)
+- **Deployment**: Docker Compose (Next.js + PostgreSQL + Nginx 反向代理)
 
 ## 專案結構
 
@@ -78,8 +80,7 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   │       ├── hfmea/         # HFMEA 教學
 │   │       └── qc7tools/      # 品管七大手法教學
 │   ├── lib/
-│   │   ├── db.ts              # 資料庫連線與操作
-│   │   ├── schema.ts          # 資料表 Schema 定義
+│   │   ├── prisma.ts          # Prisma Client 單例 (連線管理)
 │   │   ├── auth.ts            # 認證與授權邏輯
 │   │   ├── claude.ts          # Claude API 封裝
 │   │   ├── csv-parser.ts      # CSV/Excel 解析
@@ -90,10 +91,18 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │       └── index.ts           # TypeScript 型別定義
 ├── public/
 │   └── uploads/               # 上傳檔案目錄 (開發用)
+├── prisma/
+│   └── schema.prisma          # Prisma Schema (資料模型定義)
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
-└── next.config.ts
+├── next.config.ts
+├── Dockerfile                 # Next.js 多階段建置
+├── docker-compose.yml         # 完整服務編排 (app + db + nginx)
+├── docker-compose.dev.yml     # 開發用 (含 hot reload)
+├── nginx/
+│   └── default.conf           # Nginx 反向代理設定
+└── .env.example               # 環境變數範本
 ```
 
 ## 品管圈十大步驟對照
@@ -139,10 +148,23 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 ### 常用指令
 
 ```bash
-npm run dev          # 啟動開發伺服器
+# 開發
+npm run dev          # 啟動開發伺服器 (需先啟動 PostgreSQL)
 npm run build        # 建置生產版本
 npm run lint         # ESLint 檢查
 npm run type-check   # TypeScript 型別檢查
+
+# Prisma
+npx prisma migrate dev    # 執行 migration (開發)
+npx prisma generate       # 重新生成 Prisma Client
+npx prisma studio         # 開啟資料庫 GUI
+
+# Docker
+docker compose up -d              # 啟動所有服務 (背景)
+docker compose -f docker-compose.dev.yml up  # 開發模式 (含 hot reload)
+docker compose down               # 停止所有服務
+docker compose logs -f qcc-app    # 查看應用日誌
+docker exec -it qcc-db psql -U qcc -d qcc_helper  # 進入資料庫 CLI
 ```
 
 ## 注意事項

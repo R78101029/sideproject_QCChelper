@@ -680,16 +680,45 @@
 ## 5. 技術架構（建議）
 
 ```
-Frontend:  Next.js + TypeScript + Tailwind CSS
-Backend:   Next.js API Routes
-Database:  SQLite (開發) / Cloudflare D1 (部署)
-Auth:      bcrypt (密碼雜湊) + JWT / Session cookie
-AI:        Claude API (對話、分析、文件擷取)
-Search:    Web Search API (文獻搜尋)
-Charts:    ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖)
-File:      本地檔案儲存 / Cloudflare R2
-Export:    jsPDF + pptxgenjs
+Frontend:    Next.js 14+ (App Router) + TypeScript + Tailwind CSS
+Backend:     Next.js API Routes
+Database:    PostgreSQL 16 (開發與正式環境皆使用)
+ORM:         Prisma (schema-first, 自動 migration)
+Auth:        bcrypt (密碼雜湊) + JWT / Session cookie
+AI:          Claude API (對話、分析、文件擷取)
+Search:      Web Search API (文獻搜尋)
+Charts:      ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖)
+File:        Docker volume 掛載 (/uploads)
+Export:      jsPDF + pptxgenjs
+Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx)
 ```
+
+### 部署架構
+
+```
+┌─────────────────────────────────────────────┐
+│  Docker Host (醫院伺服器)                      │
+│                                             │
+│  ┌─────────┐   ┌──────────┐   ┌──────────┐ │
+│  │  Nginx   │──→│ QCC App  │──→│PostgreSQL│ │
+│  │ :80/:443 │   │ :3000    │   │ :5432    │ │
+│  └────┬─────┘   └──────────┘   └──────────┘ │
+│       │         ┌──────────┐                 │
+│       └────────→│ Other App│  (其他專案)      │
+│                 │ :xxxx    │                 │
+│                 └──────────┘                 │
+│                                             │
+│  Volumes: qcc-db-data, qcc-uploads          │
+└─────────────────────────────────────────────┘
+```
+
+### 未來遷移路徑
+
+初期以 Docker 自建部署，未來醫院資訊室若要納入正式管理：
+1. **資料庫遷移**：pg_dump 匯出 → 匯入院內 PostgreSQL / MySQL（Prisma 支援切換）
+2. **檔案遷移**：uploads volume 直接複製到新路徑
+3. **應用部署**：可沿用 Docker，或改為 bare-metal / VM 部署 Next.js
+4. **歷年資料保留**：PostgreSQL 支援大量歷年資料，可加索引優化查詢
 
 ## 6. 資料模型概要
 
