@@ -408,17 +408,33 @@
 
 | 功能 | 圈隊代表 | 品管圈管理員 | 網管 |
 |------|---------|------------|------|
+| **專案管理** | | | |
 | 建立專案 | 自己的圈 | 所有圈 | 所有圈 |
 | 編輯步驟內容 | 自己的圈 | — | — |
 | 檢視專案 | 自己的圈 | 所有圈 | 所有圈 |
 | 上傳檔案 | 自己的圈 | — | — |
-| 使用 AI Agent | 自己的圈 | 所有圈 | — |
 | 匯出報告 | 自己的圈 | 所有圈 | 所有圈 |
+| **AI Agent** | | | |
+| 使用 AI Agent | 自己的圈 | 所有圈 | — |
+| AI 健康度分析 | 自己的圈 | 所有圈 | — |
+| 文獻搜尋 | 自己的圈 | 所有圈 | — |
+| **輔導紀錄** | | | |
+| 新增/編輯輔導紀錄 | 自己的圈 | 所有圈 | — |
+| 檢視輔導紀錄 | 自己的圈 | 所有圈 | 所有圈 |
+| 輔導準備輸出 | 自己的圈 | 所有圈 | — |
+| 待討論事項 | 自己的圈 | 所有圈 | — |
+| **管理員功能** | | | |
+| 管理員儀表板 | — | 全部 | 全部 |
+| 月會報告輸出 | — | 全部 | 全部 |
+| 範本管理 | — | 全部 | 全部 |
 | 審核/評論步驟 | — | 所有圈 | — |
 | 管理圈隊帳號 | — | 所有圈 | 所有帳號 |
+| **系統管理** | | | |
 | 系統設定 | — | — | 全部 |
-| 檢視使用統計 | — | 全部 | 全部 |
 | API 金鑰管理 | — | — | 全部 |
+| 報告範本設定 | — | 全部 | 全部 |
+| **教學中心** | | | |
+| 瀏覽教學內容 | 全部 | 全部 | 全部 |
 
 #### 帳號管理功能
 
@@ -472,6 +488,8 @@
 - 「步驟六的魚骨圖目前只有 3 個大骨有填寫小要因，建議補充『環境』與『量測』面向的分析。」
 - 「目前進度落後甘特圖 2 週，建議加快步驟七的對策擬定，或調整甘特圖排程。」
 - 「步驟九的改善後數據與步驟四的分類項目不一致，請確認是否使用相同的查檢類別。」
+
+---
 
 ### 3.8 步驟間數據連動
 
@@ -834,33 +852,493 @@ networks:
 | 上傳檔案備份 | `docker cp <container>:/uploads ./uploads-backup` |
 | 定期備份建議 | cron job 每日備份 DB + uploads，保留 30 天 |
 
-## 6. 資料模型概要
+## 6. 資料模型
+
+### 6.1 資料表總覽
 
 ```
-User (使用者帳號)
-├── id, username, password_hash, display_name, role (team_rep/qcc_admin/sys_admin)
-├── email, department, created_at, last_login_at
-└── UserCircles[] (帳號與圈隊的多對多關聯)
-    └── user_id, project_id, member_role (圈長/圈員)
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│      User        │────→│   UserCircle     │←────│    Project      │
+│  (使用者帳號)     │     │  (帳號-圈隊關聯)  │     │    (專案)        │
+└─────────────────┘     └──────────────────┘     └────────┬────────┘
+                                                          │
+        ┌──────────┬──────────┬──────────┬────────────────┼────────────┐
+        ▼          ▼          ▼          ▼                ▼            ▼
+   ┌─────────┐ ┌────────┐ ┌────────┐ ┌───────────┐ ┌──────────┐ ┌─────────┐
+   │ Member  │ │  Step  │ │ Upload │ │ Reference │ │ Coaching │ │  Chat   │
+   │ (圈員)  │ │ (步驟) │ │(上傳)  │ │  (文獻)   │ │ Record   │ │ History │
+   └─────────┘ └────────┘ └────────┘ └───────────┘ └─────┬────┘ └─────────┘
+                                                          ▼
+                                                   ┌────────────┐
+                                                   │ Discussion │
+                                                   │   Item     │
+                                                   │ (待討論事項)│
+                                                   └────────────┘
 
-Project (專案)
-├── id, name, circle_name, department, period_start, period_end, status
-├── created_by (user_id), created_at
-├── Members[] (圈員)
-│   └── id, name, title, role (圈長/圈員/輔導員), user_id (nullable, 可綁定帳號)
-├── Steps[] (步驟狀態)
-│   └── id, step_number (1-10), status (not_started/in_progress/completed), data (JSON)
-│       └── input_mode: "online" | "upload" | "mixed" (紀錄該步驟的輸入方式)
-├── Uploads[] (上傳檔案)
-│   └── id, step_number, file_name, file_type, file_path, upload_purpose (data/attachment/替代輸入), uploaded_at
-├── References[] (參考文獻)
-│   └── id, step_number, title, source_url, summary, citation_text, created_at
-├── CoachingRecords[] (輔導紀錄)
-│   └── id, coaching_date, advisor_name, suggestions (JSON[]), created_by (user_id)
-│       └── suggestions[]: { step_number, content, status (pending/in_progress/done) }
-└── ChatHistory[] (Agent 對話紀錄)
-    └── id, step_number, user_id, role, content, created_at
+   ┌──────────────────┐     ┌──────────────────┐
+   │ ProjectTemplate  │     │  SystemSetting   │
+   │   (專案範本)      │     │   (系統設定)      │
+   └──────────────────┘     └──────────────────┘
 ```
+
+### 6.2 各資料表欄位定義
+
+#### User（使用者帳號）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| username | VARCHAR(50) UNIQUE | 登入帳號 |
+| password_hash | VARCHAR(255) | bcrypt 雜湊密碼 |
+| display_name | VARCHAR(100) | 顯示名稱 |
+| role | ENUM | `team_rep` / `qcc_admin` / `sys_admin` |
+| email | VARCHAR(255) | 電子信箱（選填） |
+| department | VARCHAR(100) | 所屬科別 |
+| is_active | BOOLEAN | 帳號是否啟用（預設 true） |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+| last_login_at | TIMESTAMP | 最後登入時間 |
+
+#### UserCircle（帳號與圈隊多對多關聯）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| user_id | UUID (FK → User) | 使用者 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| member_role | ENUM | `leader`（圈長）/ `member`（圈員） |
+| created_at | TIMESTAMP | 建立時間 |
+
+#### Project（專案）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| name | VARCHAR(200) | 專案名稱 |
+| circle_name | VARCHAR(100) | 圈名 |
+| department | VARCHAR(100) | 科別 |
+| period_start | DATE | 活動起始日 |
+| period_end | DATE | 活動結束日 |
+| status | ENUM | `active` / `completed` / `archived` |
+| theme_type | ENUM | `reduction`（降低類）/ `improvement`（提升類） |
+| template_id | UUID (FK → ProjectTemplate, nullable) | 來源範本 |
+| created_by | UUID (FK → User) | 建立者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### Member（圈員）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| name | VARCHAR(100) | 姓名 |
+| title | VARCHAR(100) | 職稱 |
+| role | ENUM | `leader`（圈長）/ `member`（圈員）/ `advisor`（輔導員） |
+| division | VARCHAR(100) | 角色分工說明 |
+| user_id | UUID (FK → User, nullable) | 綁定帳號（選填） |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### Step（步驟）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT (1-10) | 步驟編號 |
+| status | ENUM | `not_started` / `in_progress` / `completed` |
+| input_mode | ENUM | `online` / `upload` / `mixed` |
+| data | JSONB | 步驟結構化數據（詳見 6.3） |
+| completed_at | TIMESTAMP | 完成時間 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+**UNIQUE 約束**: `(project_id, step_number)`
+
+#### Upload（上傳檔案）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT | 對應步驟 |
+| file_name | VARCHAR(255) | 原始檔名 |
+| file_type | VARCHAR(50) | MIME type |
+| file_size | INT | 檔案大小（bytes） |
+| file_path | VARCHAR(500) | 儲存路徑 |
+| purpose | ENUM | `data`（數據）/ `attachment`（附件）/ `alternative`（替代輸入） |
+| uploaded_by | UUID (FK → User) | 上傳者 |
+| created_at | TIMESTAMP | 上傳時間 |
+
+#### Reference（參考文獻）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT | 對應步驟 |
+| title | VARCHAR(500) | 文獻標題 |
+| source_url | VARCHAR(1000) | 來源網址 |
+| summary | TEXT | AI 摘要 |
+| citation_text | TEXT | 引用文字 |
+| created_at | TIMESTAMP | 建立時間 |
+
+#### CoachingRecord（輔導紀錄）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| coaching_date | DATE | 輔導日期 |
+| advisor_name | VARCHAR(100) | 輔導老師姓名 |
+| summary | TEXT | 本次輔導摘要 |
+| created_by | UUID (FK → User) | 記錄者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### CoachingSuggestion（輔導建議，CoachingRecord 子項）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| coaching_record_id | UUID (FK → CoachingRecord) | 所屬輔導紀錄 |
+| step_number | INT (nullable) | 關聯步驟（選填） |
+| content | TEXT | 建議內容 |
+| status | ENUM | `pending` / `in_progress` / `done` |
+| resolved_at | TIMESTAMP | 完成時間 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### DiscussionItem（待討論事項）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT (nullable) | 關聯步驟 |
+| content | TEXT | 問題描述 |
+| is_resolved | BOOLEAN | 是否已解決（預設 false） |
+| created_by | UUID (FK → User) | 提出者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### ChatHistory（AI Agent 對話紀錄）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT (nullable) | 對應步驟（null 表示專案層級對話） |
+| user_id | UUID (FK → User) | 對話者 |
+| role | ENUM | `user` / `assistant` |
+| content | TEXT | 訊息內容 |
+| metadata | JSONB | 附加資料（如圖表數據、結構化回應） |
+| created_at | TIMESTAMP | 建立時間 |
+
+#### StepChangeLog（步驟異動紀錄）
+
+記錄每次步驟資料的變更，用於「本月異動摘要」（3.12）。
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| project_id | UUID (FK → Project) | 所屬專案 |
+| step_number | INT | 變更步驟 |
+| change_type | ENUM | `create` / `update` / `upload` / `delete` |
+| change_summary | VARCHAR(500) | 變更摘要（如「上傳查檢表 data.csv」） |
+| changed_by | UUID (FK → User) | 變更者 |
+| created_at | TIMESTAMP | 變更時間 |
+
+#### ProjectTemplate（專案範本）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| name | VARCHAR(200) | 範本名稱 |
+| department | VARCHAR(100) | 適用科別 |
+| description | TEXT | 範本說明 |
+| template_data | JSONB | 各步驟的範例內容（結構同 Steps.data） |
+| is_builtin | BOOLEAN | 是否為系統內建範本 |
+| source_project_id | UUID (FK → Project, nullable) | 來源專案（從歷史專案建立時） |
+| created_by | UUID (FK → User) | 建立者 |
+| created_at | TIMESTAMP | 建立時間 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+#### SystemSetting（系統設定）
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| id | UUID (PK) | 主鍵 |
+| key | VARCHAR(100) UNIQUE | 設定鍵（如 `session_timeout_hours`） |
+| value | TEXT | 設定值 |
+| description | VARCHAR(500) | 設定說明 |
+| updated_by | UUID (FK → User) | 最後修改者 |
+| updated_at | TIMESTAMP | 更新時間 |
+
+**預設系統設定：**
+
+| key | 預設值 | 說明 |
+|-----|--------|------|
+| `session_timeout_hours` | `8` | Session 過期時間（小時） |
+| `stall_alert_days` | `14` | 卡關預警天數 |
+| `hospital_name` | `""` | 醫院名稱（報告用） |
+| `hospital_logo_path` | `""` | 院徽圖片路徑 |
+| `report_header_text` | `""` | 報告頁首文字 |
+| `report_footer_text` | `""` | 報告頁尾文字 |
+
+### 6.3 Steps.data JSON 結構定義
+
+每個步驟的 `data` 欄位（JSONB）儲存該步驟的所有結構化資料。以下定義各步驟的 JSON Schema：
+
+#### Step 1 — 組圈
+
+```json
+{
+  "circle_name": "string — 圈名",
+  "circle_meaning": "string — 圈的意義說明",
+  "department": "string — 科別/單位",
+  "period_start": "date — 活動起始日",
+  "period_end": "date — 活動結束日",
+  "leader": { "name": "string", "title": "string" },
+  "advisor": { "name": "string", "title": "string" },
+  "members": [
+    { "name": "string", "title": "string", "division": "string — 角色分工" }
+  ],
+  "emblem_upload_id": "uuid | null — 圈徽圖片的 Upload.id"
+}
+```
+
+#### Step 2 — 主題選定
+
+```json
+{
+  "candidates": [
+    { "id": "uuid", "name": "string — 主題名稱", "description": "string — 簡述" }
+  ],
+  "criteria": ["string — 評價項目名稱（如：上級政策、重要性...）"],
+  "scores": [
+    {
+      "member_name": "string",
+      "ratings": {
+        "<candidate_id>": { "<criterion>": 5 }
+      }
+    }
+  ],
+  "totals": { "<candidate_id>": "number — 加總" },
+  "selected_topic": "string — 選定主題名稱",
+  "selection_reason": "string — 選題理由",
+  "metric_definition": "string — 衡量指標定義"
+}
+```
+
+#### Step 3 — 活動計畫擬定
+
+```json
+{
+  "total_weeks": "number — 預計活動總週數",
+  "meeting_frequency": "string — 開會頻率（如：每週一次）",
+  "schedule": [
+    {
+      "step_number": "number (1-10)",
+      "step_name": "string",
+      "responsible": "string — 負責人",
+      "planned_start": "date",
+      "planned_end": "date",
+      "actual_start": "date | null",
+      "actual_end": "date | null"
+    }
+  ]
+}
+```
+
+#### Step 4 — 現況把握
+
+```json
+{
+  "check_period_start": "date",
+  "check_period_end": "date",
+  "total_checks": "number — 查檢總數（分母）",
+  "categories": [
+    {
+      "name": "string — 缺失類別",
+      "count": "number — 次數"
+    }
+  ],
+  "pareto_sorted": [
+    {
+      "name": "string",
+      "count": "number",
+      "cumulative_count": "number",
+      "percentage": "number",
+      "cumulative_percentage": "number"
+    }
+  ],
+  "vital_few": ["string — 關鍵少數項目名稱"],
+  "current_rate": "number — 現狀值（不良率 %）",
+  "description": "string — 現況描述文字"
+}
+```
+
+#### Step 5 — 目標設定
+
+```json
+{
+  "current_value": "number — 現狀值（自動帶入 step4）",
+  "improvement_focus_ratio": "number — 改善重點佔比（自動帶入 step4 柏拉圖 80% 線）",
+  "circle_capability": "number — 圈能力值（0~1）",
+  "calculation_method": "'formula' | 'manual'",
+  "theme_type": "'reduction' | 'improvement' — 降低類/提升類",
+  "target_value": "number — 目標值",
+  "reason": "string — 目標設定理由（含計算過程）"
+}
+```
+
+#### Step 6 — 解析
+
+```json
+{
+  "fishbone_topic": "string — 魚骨圖主題",
+  "main_categories": [
+    {
+      "id": "uuid",
+      "name": "string — 大要因名稱（如：Man）",
+      "medium_causes": [
+        {
+          "id": "uuid",
+          "name": "string — 中要因",
+          "small_causes": [
+            {
+              "id": "uuid",
+              "name": "string — 小要因",
+              "is_root_cause": "boolean — 是否圈選為真因"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "root_cause_verification": [
+    {
+      "cause_id": "uuid — 對應小要因 id",
+      "cause_name": "string",
+      "method": "string — 驗證方法",
+      "result": "boolean — 是否為真因",
+      "evidence": "string — 佐證說明"
+    }
+  ],
+  "confirmed_root_causes": ["uuid — 確認為真因的小要因 id"]
+}
+```
+
+#### Step 7 — 對策擬定
+
+```json
+{
+  "countermeasures": [
+    {
+      "id": "uuid",
+      "root_cause_id": "uuid — 對應 step6 真因",
+      "root_cause_name": "string",
+      "what": "string — 對策方案內容",
+      "why": "string — 為何採此對策",
+      "who": "string — 負責人",
+      "where": "string — 實施地點/範圍",
+      "when": "date — 預計完成日",
+      "how": "string — 具體執行方法"
+    }
+  ],
+  "evaluation_criteria": ["string — 評價項目（如：可行性、經濟性、效益性）"],
+  "evaluation_scores": [
+    {
+      "member_name": "string",
+      "ratings": {
+        "<countermeasure_id>": { "<criterion>": 5 }
+      }
+    }
+  ],
+  "evaluation_totals": { "<countermeasure_id>": "number" },
+  "adoption_threshold": "number — 採行門檻分數",
+  "adopted": ["uuid — 採行的對策 id"],
+  "rejected": ["uuid — 不採行的對策 id"]
+}
+```
+
+#### Step 8 — 對策實施與檢討
+
+```json
+{
+  "implementations": [
+    {
+      "countermeasure_id": "uuid — 對應 step7",
+      "countermeasure_name": "string",
+      "implementation_date": "date",
+      "before_description": "string — 實施前狀況",
+      "after_description": "string — 實施後狀況",
+      "responsible": "string — 負責人",
+      "status": "'in_progress' | 'completed' | 'delayed'",
+      "effectiveness": "'effective' | 'ineffective' | 'needs_revision' | null",
+      "review_note": "string — 檢討說明"
+    }
+  ]
+}
+```
+
+#### Step 9 — 效果確認
+
+```json
+{
+  "post_check_period_start": "date",
+  "post_check_period_end": "date",
+  "post_total_checks": "number — 改善後查檢總數",
+  "post_categories": [
+    { "name": "string", "count": "number" }
+  ],
+  "post_pareto_sorted": [
+    {
+      "name": "string",
+      "count": "number",
+      "cumulative_count": "number",
+      "percentage": "number",
+      "cumulative_percentage": "number"
+    }
+  ],
+  "post_rate": "number — 改善後不良率 %",
+  "improvement_rate": "number — 改善幅度 %",
+  "goal_achievement_rate": "number — 目標達成率 %",
+  "intangible_criteria": ["string — 無形成果評估項目"],
+  "intangible_scores": {
+    "before": { "<member_name>": { "<criterion>": "number (1-5)" } },
+    "after": { "<member_name>": { "<criterion>": "number (1-5)" } }
+  },
+  "intangible_averages": {
+    "before": { "<criterion>": "number" },
+    "after": { "<criterion>": "number" }
+  }
+}
+```
+
+#### Step 10 — 標準化與檢討改進
+
+```json
+{
+  "standardizations": [
+    {
+      "countermeasure_name": "string — 對策名稱",
+      "standard_content": "string — 標準化內容",
+      "document_number": "string — SOP 文件編號",
+      "maintainer": "string — 負責維護人"
+    }
+  ],
+  "review": {
+    "strengths": "string — 本次活動優點",
+    "improvements": "string — 待改進事項",
+    "next_topic_suggestion": "string — 下期活動主題建議"
+  }
+}
+```
+
+---
 
 ## 7. 頁面結構
 
@@ -883,23 +1361,199 @@ Project (專案)
 /learn/:topic                 → 教學文章頁面（QCC/PDCA/HFMEA/品管七大手法）
 ```
 
-## 8. MVP 範圍（第一版）
+## 8. API 端點規格
 
-第一版優先實作：
-1. 帳號登入與角色權限控管（三種角色）
-2. 專案建立與管理（含範本庫）
-3. 十大步驟的表單填寫與資料儲存
-4. 步驟間數據連動與完成度檢核
-5. 混合輸入模式（線上填寫 + 文件上傳，至少支援 Excel/CSV/圖片）
-6. 快速工具：甘特圖產生器、評價矩陣計分器、柏拉圖產生器、魚骨圖編輯器、雷達圖自評工具
-7. 每步驟的 AI Agent 對話協助
-8. AI 專案健康度分析與跨步驟建議
-9. 文獻搜尋功能（步驟二、四、六、七）
-10. 輔導紀錄與月會輸出（圈隊進度摘要、管理員全院報告）
-11. PDF 報告匯出（從 Steps.data 自動取用所有成果物）
-12. 教學中心（QCC 十大步驟、PDCA、HFMEA、品管七大手法）
+所有 API 端點皆位於 `/api/` 路徑下，使用 Next.js API Routes 實作。
 
-暫緩功能：
+### 8.1 認證 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| POST | `/api/auth/login` | 登入，回傳 JWT token | 公開 |
+| POST | `/api/auth/logout` | 登出，清除 cookie | 已登入 |
+| GET | `/api/auth/me` | 取得目前使用者資訊 | 已登入 |
+| PUT | `/api/auth/password` | 修改自己的密碼 | 已登入 |
+
+### 8.2 專案 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/projects` | 專案列表（依角色過濾） | 已登入 |
+| POST | `/api/projects` | 建立新專案 | team_rep, qcc_admin |
+| GET | `/api/projects/:id` | 專案詳情（含所有步驟狀態摘要） | 專案成員 / admin |
+| PUT | `/api/projects/:id` | 更新專案基本資訊 | 專案圈長 |
+| DELETE | `/api/projects/:id` | 刪除專案（軟刪除，改 status=archived） | sys_admin |
+| POST | `/api/projects/:id/clone` | 從範本或現有專案複製 | team_rep, qcc_admin |
+
+### 8.3 步驟 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/projects/:id/steps` | 取得所有步驟狀態 | 專案成員 / admin |
+| GET | `/api/projects/:id/steps/:n` | 取得步驟 n 的完整 data | 專案成員 / admin |
+| PUT | `/api/projects/:id/steps/:n` | 更新步驟 n 的 data（自動儲存用） | 專案成員 |
+| PUT | `/api/projects/:id/steps/:n/status` | 更新步驟狀態（完成/退回進行中） | 專案成員 |
+| GET | `/api/projects/:id/steps/:n/completeness` | 檢查步驟必填項完成度 | 專案成員 / admin |
+| GET | `/api/projects/:id/health` | AI 專案健康度分析 | 專案成員 / admin |
+
+### 8.4 圈員 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/projects/:id/members` | 圈員列表 | 專案成員 / admin |
+| POST | `/api/projects/:id/members` | 新增圈員 | 專案圈長 |
+| PUT | `/api/projects/:id/members/:mid` | 更新圈員資訊 | 專案圈長 |
+| DELETE | `/api/projects/:id/members/:mid` | 移除圈員 | 專案圈長 |
+
+### 8.5 上傳 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| POST | `/api/projects/:id/uploads` | 上傳檔案（multipart/form-data） | 專案成員 |
+| GET | `/api/projects/:id/uploads` | 列出專案所有上傳檔案 | 專案成員 / admin |
+| GET | `/api/uploads/:uid/download` | 下載檔案 | 專案成員 / admin |
+| DELETE | `/api/uploads/:uid` | 刪除上傳檔案 | 上傳者 / admin |
+
+### 8.6 分析 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| POST | `/api/analyze/csv` | 解析 CSV/Excel，回傳結構化數據 | 專案成員 |
+| POST | `/api/analyze/pareto` | 依原始數據計算柏拉圖數據 | 專案成員 |
+| POST | `/api/analyze/target` | 依公式計算目標值 | 專案成員 |
+| POST | `/api/analyze/effectiveness` | 計算改善幅度與目標達成率 | 專案成員 |
+
+### 8.7 AI Agent API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| POST | `/api/chat` | 發送對話訊息，回傳 AI 回應（streaming） | 專案成員 / qcc_admin |
+| GET | `/api/projects/:id/chat/history` | 取得對話紀錄 | 專案成員 / admin |
+| POST | `/api/search/literature` | 文獻搜尋 | 專案成員 / qcc_admin |
+
+### 8.8 輔導紀錄 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/projects/:id/coaching` | 輔導紀錄列表 | 專案成員 / admin |
+| POST | `/api/projects/:id/coaching` | 新增輔導紀錄 | 專案成員 / qcc_admin |
+| PUT | `/api/coaching/:cid` | 更新輔導紀錄 | 記錄者 / qcc_admin |
+| PUT | `/api/coaching/:cid/suggestions/:sid` | 更新建議狀態 | 專案成員 |
+| GET | `/api/projects/:id/discussions` | 待討論事項列表 | 專案成員 / admin |
+| POST | `/api/projects/:id/discussions` | 新增待討論事項 | 專案成員 |
+| PUT | `/api/discussions/:did` | 更新（解決）討論事項 | 專案成員 |
+
+### 8.9 匯出 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| POST | `/api/projects/:id/export/pdf` | 匯出完整 PDF 報告 | 專案成員 / admin |
+| POST | `/api/projects/:id/export/step-pdf` | 匯出單步驟 PDF | 專案成員 / admin |
+| POST | `/api/projects/:id/export/coaching-summary` | 匯出輔導準備摘要 PDF | 專案成員 / admin |
+| POST | `/api/projects/:id/export/charts` | 匯出所有圖表為 PDF | 專案成員 / admin |
+
+### 8.10 管理員 API
+
+| Method | 路徑 | 說明 | 權限 |
+|--------|------|------|------|
+| GET | `/api/admin/dashboard` | 全院進度總覽 | qcc_admin / sys_admin |
+| GET | `/api/admin/stalled` | 卡關圈隊清單 | qcc_admin / sys_admin |
+| POST | `/api/admin/export/monthly` | 匯出月會報告 | qcc_admin / sys_admin |
+| GET | `/api/admin/users` | 帳號列表 | qcc_admin / sys_admin |
+| POST | `/api/admin/users` | 建立帳號 | qcc_admin / sys_admin |
+| PUT | `/api/admin/users/:uid` | 更新帳號 | qcc_admin / sys_admin |
+| PUT | `/api/admin/users/:uid/reset-password` | 重設密碼 | sys_admin |
+| GET | `/api/admin/templates` | 範本列表 | qcc_admin / sys_admin |
+| POST | `/api/admin/templates` | 建立範本 | qcc_admin / sys_admin |
+| GET | `/api/admin/settings` | 系統設定列表 | sys_admin |
+| PUT | `/api/admin/settings` | 更新系統設定 | sys_admin |
+
+### 8.11 API 通用規範
+
+**回應格式：**
+
+```json
+// 成功
+{ "success": true, "data": { ... } }
+
+// 錯誤
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "message": "圈名為必填欄位" } }
+```
+
+**錯誤碼：**
+
+| HTTP 狀態碼 | error.code | 說明 |
+|------------|------------|------|
+| 400 | `VALIDATION_ERROR` | 輸入驗證失敗 |
+| 401 | `UNAUTHORIZED` | 未登入或 token 過期 |
+| 403 | `FORBIDDEN` | 無權限存取此資源 |
+| 404 | `NOT_FOUND` | 資源不存在 |
+| 409 | `CONFLICT` | 資料衝突（如帳號重複） |
+| 413 | `FILE_TOO_LARGE` | 上傳檔案超過限制 |
+| 500 | `INTERNAL_ERROR` | 伺服器內部錯誤 |
+
+---
+
+## 9. MVP 實作階段
+
+### Phase 0 — 專案基礎建設（預估 1 sprint）
+
+- Next.js 專案初始化 + TypeScript + Tailwind CSS
+- Prisma schema 建立 + PostgreSQL 連線
+- Docker Compose 設定（app + db + nginx）
+- 基本頁面佈局（Sidebar、Header）
+- 環境變數與設定檔
+
+### Phase 1 — 認證與專案管理（預估 1 sprint）
+
+- 帳號登入/登出（JWT + httpOnly cookie）
+- 角色權限中介層（middleware）
+- 專案 CRUD + 列表頁
+- 帳號管理（管理員/網管）
+
+### Phase 2 — 十大步驟表單（預估 2-3 sprints）
+
+- 步驟 1~10 的表單元件（依 Steps.data JSON 結構）
+- 自動儲存機制（debounce 3 秒）
+- 步驟完成度檢核（必填/選填判斷）
+- 步驟間數據連動（上游修改 → 下游警示）
+- 檔案上傳功能（CSV/Excel/圖片）
+
+### Phase 3 — 圖表與快速工具（預估 2 sprints）
+
+- 柏拉圖產生器（步驟四、九）
+- 魚骨圖互動編輯器（步驟六）
+- 甘特圖產生器（步驟三）
+- 評價矩陣計分器（步驟二、七）
+- 雷達圖自評工具（步驟九）
+- 改善前後柏拉圖並排對比
+
+### Phase 4 — AI Agent 整合（預估 1-2 sprints）
+
+- Claude API 串接（streaming 對話）
+- 各步驟 system prompt 建立
+- AI 專案健康度分析
+- 文獻搜尋功能
+- 對話紀錄儲存與回溯
+
+### Phase 5 — 輔導與匯出（預估 1 sprint）
+
+- 輔導紀錄 CRUD + 建議追蹤
+- 待討論事項功能
+- PDF 報告匯出（jsPDF）
+- 輔導準備摘要匯出
+- 管理員全院進度總覽
+
+### Phase 6 — 教學中心 + 收尾（預估 1 sprint）
+
+- MDX 教學內容撰寫（QCC、PDCA、HFMEA、品管七大手法）
+- 教學中心頁面與導航
+- 管理員儀表板卡關預警
+- 整體 UI 微調與錯誤處理
+- 部署測試
+
+### 暫緩功能（第二版）
+
 - PPT 匯出、成果發表海報匯出
 - Word 文件上傳的 AI 擷取（第一版先支援 Excel/CSV/圖片）
 - 報告範本自訂（第一版使用系統預設範本）
@@ -908,3 +1562,100 @@ Project (專案)
 - 管理員儀表板的年度統計與圈隊評比
 - 通知與提醒系統
 - 登入記錄稽核報表
+
+---
+
+## 10. 技術細節補充
+
+### 10.1 認證機制
+
+採用 **JWT + httpOnly cookie** 方案：
+
+| 項目 | 規格 |
+|------|------|
+| Token 類型 | JWT（HS256） |
+| 儲存方式 | httpOnly + Secure + SameSite=Strict cookie |
+| 過期時間 | 預設 8 小時（可由 SystemSetting 調整） |
+| Token 內容 | `{ sub: user_id, role, iat, exp }` |
+| 刷新機制 | 每次 API 請求時檢查剩餘時間，<1 小時自動續期 |
+
+不使用 localStorage 存放 token，避免 XSS 風險。
+
+### 10.2 自動儲存機制
+
+| 項目 | 規格 |
+|------|------|
+| 觸發方式 | 表單欄位變更後 debounce 3 秒自動觸發 |
+| API 呼叫 | `PUT /api/projects/:id/steps/:n`（送出整個 step data） |
+| 前端狀態 | 顯示儲存狀態指示器：「已儲存」/「儲存中...」/「未儲存變更」 |
+| 衝突處理 | 單一使用者場景為主，不處理多人同時編輯同一步驟的衝突 |
+| 離開提醒 | 若有未儲存變更，離開頁面時顯示 `beforeunload` 確認 |
+| 失敗重試 | 儲存失敗時自動重試 1 次，仍失敗則顯示錯誤提示並保留本地資料 |
+
+### 10.3 環境變數規格
+
+`.env.example` 內容：
+
+```env
+# ── 資料庫 ──
+DATABASE_URL=postgresql://qcc:changeme@localhost:5432/qcc_helper
+
+# ── 認證 ──
+JWT_SECRET=your-jwt-secret-min-32-chars
+SESSION_TIMEOUT_HOURS=8
+
+# ── AI ──
+ANTHROPIC_API_KEY=sk-ant-xxxxx
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+
+# ── 檔案上傳 ──
+UPLOAD_DIR=/app/uploads
+MAX_FILE_SIZE_MB=10
+
+# ── 應用 ──
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+```
+
+### 10.4 AI Agent System Prompt 設計原則
+
+每個步驟有獨立的 system prompt，結構如下：
+
+```
+你是 QCC Helper 的 AI 助理，目前正在協助品管圈的「{步驟名稱}」步驟。
+
+## 你的角色
+- 你是品管圈專家，熟悉醫療品質改善流程
+- 你的回答應使用繁體中文
+- 你應該引導同仁完成此步驟，而非直接替他們做
+
+## 此步驟的目的
+{步驟目的說明}
+
+## 此步驟的關鍵要點
+{步驟重點與常見錯誤}
+
+## 目前專案資訊
+{動態注入：圈名、主題、已完成步驟的關鍵數據}
+
+## 限制
+- 不要產生任何病患個資或可識別個人的資訊
+- 數據分析時，只處理使用者提供的統計數據
+- 文字生成僅為草稿建議，提醒同仁需自行審核修改
+```
+
+**動態注入規則：**
+- 步驟 5 的 prompt 自動注入步驟 4 的 `current_rate` 和 `vital_few`
+- 步驟 7 的 prompt 自動注入步驟 6 的 `confirmed_root_causes`
+- 步驟 9 的 prompt 自動注入步驟 4、5 的數據用於對比計算
+- 專案健康度分析的 prompt 注入所有步驟的 `status` 和 `completeness`
+
+### 10.5 圖表匯出規格
+
+所有 ECharts 圖表需支援以下匯出方式：
+
+| 方式 | 用途 | 實作 |
+|------|------|------|
+| PNG 下載 | 同仁單獨下載圖表 | `echarts.getDataURL()` |
+| SVG 嵌入 PDF | 報告匯出時嵌入 | ECharts SVG renderer → jsPDF |
+| JSON 數據 | 儲存於 Steps.data | 圖表可從 JSON 重新渲染 |
