@@ -36,9 +36,11 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   │   │       ├── coaching/page.tsx # 輔導紀錄
 │   │   │       └── export/page.tsx   # 成果匯出
 │   │   ├── admin/
-│   │   │   ├── dashboard/page.tsx    # 管理員儀表板
+│   │   │   ├── dashboard/page.tsx    # 管理員儀表板（含一眼總覽卡片）
 │   │   │   ├── users/page.tsx        # 帳號管理
-│   │   │   └── settings/page.tsx     # 系統設定
+│   │   │   ├── settings/page.tsx     # 系統設定
+│   │   │   ├── reports/page.tsx      # 評鑑報告產出（年度成果摘要）
+│   │   │   └── knowledge/page.tsx    # 全院知識庫（歷年品管圈經驗）
 │   │   ├── learn/             # 教學中心
 │   │   │   ├── page.tsx       # 教學首頁
 │   │   │   └── [topic]/page.tsx  # 各主題教學頁面
