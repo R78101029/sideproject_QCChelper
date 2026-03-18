@@ -1,304 +1,781 @@
-# QCC Helper — MVP 開發計畫
+# QCC Helper — 開發計畫（Agent 並行版）
 
-> 本文件為**實作導向的開發計畫**，聚焦在「最快讓同仁可以用」。
-> 完整需求規格見 `requirements.md`，本文件只關心：**做什麼、順序、取捨。**
+> 本計畫利用多個 AI Agent 並行開發，大幅壓縮時程。
+> 完整需求規格見 `requirements.md`，本文件聚焦：**誰做什麼、同時做什麼、依賴關係。**
 
-## MVP 目標
+---
 
-> **一個圈隊能從步驟一走到步驟十，產出 PDF 報告交差。**
+## 三階段總覽
 
-做到這件事就算 MVP 成功。其他功能都是加分項。
+| 階段 | 目標 | 預估時程 |
+|------|------|---------|
+| **Phase 1 — MVP** | 一個圈隊能走完十步驟、產出 PDF 報告 | 4~5 週 |
+| **Phase 2 — 強化** | AI 主動幫填、互動圖表、輔導機制、資安強化 | 3~4 週 |
+| **Phase 3 — 醫院治理** | 知識庫、評鑑報告、趨勢分析、持續改善追蹤 | 3~4 週 |
 
-## 取捨原則
+---
 
-| 做 | 不做（MVP 後再說） |
+# Phase 1 — MVP
+
+> **目標：一個圈隊能從步驟一走到步驟十，產出 PDF 報告交差。**
+
+## MVP 取捨
+
+| 做 | 不做（Phase 2/3） |
 |----|------------------|
 | 十步驟表單能填能存 | 精簡/完整模式切換 |
-| CSV 上傳 → 柏拉圖 | 魚骨圖互動編輯器 |
+| CSV 上傳 → 柏拉圖 | 魚骨圖互動編輯、甘特圖 |
 | AI 對話（streaming） | AI 幫我填（草稿填入） |
 | PDF 報告匯出 | PPT / 海報匯出 |
 | 基本登入 + 角色 | 通知系統 |
 | 管理員看進度 | 評鑑報告、知識庫、趨勢分析 |
 | 自動儲存 | upstream_snapshot + hash 比對 |
-| CSV 欄位名稱警告（簡易個資提醒） | 三層 PII 防護架構 |
+| UI 個資提醒文字 | 三層 PII 防護架構 |
 | 直接呼叫 Claude API | LLM Adapter 抽象層 |
 
-### 個資處理（MVP 簡化版）
-
-MVP 階段不做完整的白名單過濾器和 PII middleware。只做：
-
-1. **CSV 上傳預覽頁面**加一行提醒文字：「請確認資料中不包含病患姓名、病歷號等個資」
-2. **AI 對話輸入框**上方加常駐灰色提醒：「請勿輸入病患個資」
-3. CSV 後端解析時，**不傳原始逐筆數據給 AI**，只傳聚合後的統計摘要（這本來就是架構設計）
-
-完整的 `csv-sanitizer.ts`（白名單欄位過濾）和 `pii-filter.ts`（固定格式攔截）留到 MVP 後再實作。
-
----
-
-## Sprint 計畫
-
-### Sprint 0 — 地基（1 週）
-
-**目標：專案能跑起來、能連資料庫、有基本頁面骨架。**
+## Agent 團隊配置
 
 ```
-交付物：
-├── Next.js 專案 + TypeScript + Tailwind CSS
+Agent-F  Foundation    地基：專案初始化、Prisma、Docker、型別
+Agent-A  API           後端 API 全部：Auth、Project、Step、Upload、Analyze
+Agent-S  StepForms     前端步驟表單：Step1Form ~ Step10Form + 自動儲存
+Agent-C  Charts        圖表元件：柏拉圖、雷達圖（可用 mock data 獨立開發）
+Agent-I  AI-Chat       AI 整合：Claude API、對話 UI、system prompt
+Agent-E  Export        PDF 匯出：Browserless 容器、報告 HTML 模板
+Agent-D  Dashboard     管理員：儀表板、帳號管理、收尾
+```
+
+## 依賴關係圖
+
+```
+Week 1          Week 2          Week 3          Week 4          Week 5
+─────────────── ─────────────── ─────────────── ─────────────── ──────────
+                │
+Agent-F ████████│
+  Foundation    │
+  (Prisma,      │
+   Docker,      │
+   Layout,      ▼
+   Types)       ┬───────────────────────────────────────────────
+                │
+                ├─ Agent-A ████████████████████
+                │  API (Auth→Project→Step→    │
+                │  Upload→Analyze)            │
+                │                             │
+                ├─ Agent-S ████████████████████│██████
+                │  StepForms (1~5, 6~10)      │  整合
+                │                             │
+                ├─ Agent-C ██████████         │
+                │  Charts (Pareto, Radar)     │
+                │                             │
+                ├─ Agent-I ██████████████      │
+                │  AI Chat (Claude, prompts)  │
+                │                             ▼
+                │                    ┌─────────────────
+                │                    │
+                │               Agent-E ████████████
+                │               Export (Browserless,
+                │                      Report HTML,
+                │                      Export API)
+                │                             │
+                │                             ▼
+                │                    ┌─────────────────
+                │                    │
+                └──────────────Agent-D ████████
+                               Dashboard +
+                               收尾 + 部署
+```
+
+## Sprint 詳細計畫
+
+### Sprint 0 — 地基（Agent-F 單獨，1 週）
+
+> 所有 Agent 都依賴這個。必須先完成。
+
+```
+Agent-F 交付物：
+├── Next.js 14 專案 + TypeScript strict + Tailwind CSS
 ├── Prisma schema（全部 17 張表一次建好）
+│   ├── User, UserCircle, Project (+KPI 欄位), Member
+│   ├── Step (+view_mode, +ai_draft_fields), Upload, Reference
+│   ├── CoachingRecord, CoachingSuggestion, DiscussionItem
+│   ├── ChatHistory, StepChangeLog, ProjectTemplate, SystemSetting
+│   ├── ProjectBenefit, FollowUp, Notification
+│   └── 執行 prisma migrate dev 確認 schema 正確
 ├── Docker Compose（app + db + nginx）
-├── 基本 Layout（Sidebar 十步驟導航 + Header）
-├── 首頁空殼（專案列表）
+│   └── nginx: client_max_body_size 20m
+├── 基本 Layout
+│   ├── Sidebar（十步驟導航 + 專案資訊）
+│   ├── Header（使用者名稱 + 登出按鈕位置）
+│   └── 主內容區 responsive 骨架
+├── 共用 UI 元件
+│   ├── Button, Input, Textarea, Select, Card
+│   ├── Table, Modal, Toast/Alert
+│   └── SaveIndicator（已儲存/儲存中/未儲存）
+├── types/steps.ts — Step1Data ~ Step10Data TypeScript 介面
+├── lib/step-schemas.ts — Zod schema（runtime 驗證）
+├── lib/prisma.ts — Prisma Client 單例
 ├── .env.example
-└── Step 1~10 TypeScript 型別定義（types/steps.ts）
+├── prisma/seed.ts — 預設 sys_admin 帳號 + demo 資料
+└── 4 個技術 spike（見下方）
 ```
 
-**關鍵決策：**
+**Sprint 0 第一天：4 個 Spike（並行驗證）**
 
-- Prisma schema **一次全部建好**，包含 KPI 欄位、Notification 等。表先建好不代表要寫 API，但後續不用反覆 migrate
-- 型別定義也一次寫完（Step1Data ~ Step10Data），用 Zod 做 runtime 驗證。後續表單開發直接用
-- 暫不設定 Browserless 容器，PDF 匯出在 Sprint 4 再處理
-- `claude.ts` 直接封裝 `@anthropic-ai/sdk`，不做 adapter 抽象。MVP 只用 Claude
-
-**不做：**
-- ~~LLM Adapter 抽象層~~ → 直接呼叫 Claude
-- ~~PII filter~~ → 只加 UI 文字提醒
-- ~~Notification 表的 API~~ → 表建好但 API 之後寫
+| Spike | 驗證內容 | Agent |
+|-------|---------|-------|
+| Browserless PDF | 起 browserless/chrome 容器 → 渲染中文+ECharts HTML → 產出 PDF | Agent-F |
+| ECharts 柏拉圖 | 獨立 demo：bar+line+80%線+累積起始0%，確認規格正確 | Agent-F |
+| CSV stream | fast-csv pipeline 解析 1 萬行，驗證記憶體恆定 | Agent-F |
+| Claude streaming | Next.js API Route + @anthropic-ai/sdk streaming → 前端即時顯示 | Agent-F |
 
 ---
 
-### Sprint 1 — 登入 + 專案 CRUD（1 週）
+### Sprint 1~3 — 並行開發（4 個 Agent 同時，2 週）
 
-**目標：能登入、能建專案、能看到專案列表。**
+Sprint 0 完成後，以下 4 個 Agent **同時啟動**：
 
-```
-交付物：
-├── POST /api/auth/login, logout, GET /me
-├── JWT + httpOnly cookie
-├── 角色中介層 middleware
-├── 專案 CRUD API（GET/POST/PUT）
-├── 登入頁面
-├── 首頁 — 專案列表（卡片式，顯示圈名、科別、進度）
-├── 建立新專案頁面（圈名 + 科別 + 活動期間，三個欄位就好）
-└── 專案總覽頁面骨架（十步驟進度條）
-```
-
-**帳號建立方式：**
-- MVP 不做註冊頁面，由管理員/網管在後台建帳號
-- 預設建一個 sys_admin 帳號（seed script）
-
----
-
-### Sprint 2a — 步驟表單 1~5（1.5 週）
-
-**目標：前五步驟能填寫、能儲存。**
+#### Agent-A：後端 API（2 週）
 
 ```
-交付物：
-├── GET/PUT /api/projects/:id/steps/:n
-├── 自動儲存（debounce 3 秒 + 儲存狀態指示器）
-├── 步驟一：組圈（圈員名單表單 + 圈徽上傳）
-├── 步驟二：主題選定（候選主題 + 評價矩陣 — 純表單，先不做自動計分）
-├── 步驟三：活動計畫（時程表單 — 純表單，先不做甘特圖）
-├── 步驟四：現況把握（CSV 上傳 + 前端預覽 + 後端解析 — 先不做柏拉圖）
-├── 步驟五：目標設定（目標值計算表單）
-├── 檔案上傳 API（POST /api/projects/:id/uploads）
-└── 側邊欄步驟自由導航（點任何步驟都能跳入）
-```
+Week 1 交付：
+├── lib/auth.ts — JWT 產生/驗證 + httpOnly cookie
+├── middleware.ts — 角色權限檢查（team_rep/qcc_admin/sys_admin）
+├── POST /api/auth/login — 登入，回傳 JWT
+├── POST /api/auth/logout — 登出，清除 cookie
+├── GET  /api/auth/me — 取得目前使用者
+├── GET  /api/projects — 專案列表（依角色過濾）
+├── POST /api/projects — 建立專案
+├── GET  /api/projects/:id — 專案詳情（含各步驟 status）
+├── PUT  /api/projects/:id — 更新專案
+├── GET  /api/projects/:id/steps — 所有步驟狀態
+├── GET  /api/projects/:id/steps/:n — 取得步驟 data
+├── PUT  /api/projects/:id/steps/:n — 更新步驟 data（自動儲存用）
+│   └── 步驟四/五/九儲存時同步 KPI 至 Project 表
+├── PUT  /api/projects/:id/steps/:n/status — 更新步驟狀態
+└── GET  /api/projects/:id/steps/:n/completeness — 建議欄位填寫進度
 
-**CSV 解析重點：**
-- 使用 `fast-csv` stream mode（不一次載入全檔）
-- 後端聚合後回傳分類統計表
-- 前端預覽頁加灰色提醒文字（個資）
-- 暫不傳 AI，只做解析和統計
-
-**步驟間連動（簡化版）：**
-- 步驟五自動帶入步驟四的 `current_rate`（有就帶，沒有就空）
-- 不做 upstream_snapshot、不做 hash 比對（MVP 後再加）
-
----
-
-### Sprint 2b — 步驟表單 6~10（1.5 週）
-
-**目標：後五步驟能填寫、能儲存。一個完整的品管圈流程可以走完。**
-
-```
-交付物：
-├── 步驟六：解析（魚骨圖 — MVP 用簡化版：大骨+小骨的樹狀列表，不做互動拖拉圖）
-├── 步驟七：對策擬定（5W1H 表單 + 評價矩陣）
-├── 步驟八：對策實施（實施進度表 — 表格填寫）
-├── 步驟九：效果確認（CSV 上傳 + 改善幅度/達成率自動計算）
-├── 步驟十：標準化與檢討（SOP 文字表單 + 檢討表單）
-├── 步驟九自動帶入步驟四、五的數據做對比
-└── Project KPI 欄位同步（步驟四/五/九儲存時寫入 Project 表）
-```
-
-**魚骨圖簡化策略：**
-- MVP 不做 ECharts 互動式魚骨圖（開發成本高）
-- 改用**樹狀列表 UI**：5M1E 六個大分類，每個下面可新增小要因
-- 視覺上夠清楚，數據結構和最終版一樣（`main_categories` JSON）
-- 正式版再換成 ECharts/SVG 渲染
-
-**步驟二/七 評價矩陣簡化：**
-- MVP 先做「圈長代填總分」（一人填所有分數），不做「每位圈員各別打分」
-- 因為「每人打分 → 自動加總」的 UI 複雜度高，且實務上常常是圈長彙整後統一輸入
-
----
-
-### Sprint 3 — 圖表（1.5 週）
-
-**目標：柏拉圖能正確產生並顯示。**
-
-```
-交付物：
-├── ParetoChart.tsx — ECharts 柏拉圖元件
-│   ├── bar + line 複合圖
-│   ├── X 軸由高到低排序（「其他」放最末）
-│   ├── 右 Y 軸累積百分比 + 80% 線
-│   └── 累積百分比起始值為 0%
-├── 步驟四嵌入柏拉圖（改善前）
-├── 步驟九嵌入柏拉圖（改善後）
-├── 改善前後並排對比頁面
-├── RadarChart.tsx — 雷達圖（步驟九無形成果）
+Week 2 交付：
+├── POST /api/projects/:id/uploads — 上傳檔案（multipart）
+├── GET  /api/projects/:id/uploads — 檔案列表
+├── GET  /api/uploads/:uid/download — 下載
+├── DELETE /api/uploads/:uid — 刪除
+├── POST /api/analyze/csv — CSV stream 解析 + 聚合統計
 ├── POST /api/analyze/pareto — 柏拉圖數據計算
-├── POST /api/analyze/effectiveness — 改善幅度計算
-└── 圖表 PNG 下載（echarts.getDataURL()）
+├── POST /api/analyze/target — 目標值計算
+├── POST /api/analyze/effectiveness — 改善幅度/達成率
+├── GET  /api/admin/dashboard — 全院進度（query Project KPI 欄位）
+├── GET  /api/admin/stalled — 卡關圈隊
+├── GET/POST /api/admin/users — 帳號管理
+├── PUT  /api/admin/users/:uid — 更新帳號
+└── PUT  /api/admin/users/:uid/reset-password — 重設密碼
 ```
 
-**不做：**
-- ~~甘特圖~~ → MVP 步驟三用純文字時程表
-- ~~魚骨圖 ECharts 渲染~~ → Sprint 2b 已用樹狀列表替代
-- ~~chart_config 持久化~~ → MVP 後再加
+#### Agent-S：步驟表單前端（2 週）
 
-**為什麼柏拉圖優先？**
-因為柏拉圖是品管圈報告的**核心圖表**，沒有柏拉圖就不算完成品管圈。其他圖表是加分。
+> 依賴 Agent-F 的 Layout、types、Zod schema。
+> API 尚未就緒時，用 mock data 或 localStorage 暫存開發。
 
----
+```
+Week 1 交付（步驟 1~5）：
+├── 自動儲存 hook（useAutoSave）
+│   ├── debounce 3 秒
+│   ├── SaveIndicator 元件整合
+│   └── beforeunload 離開提醒
+├── 步驟頁面共用骨架（/project/[id]/step/[n]/page.tsx）
+│   ├── 讀取 step data → 填入表單
+│   ├── 表單變更 → useAutoSave
+│   └── 步驟完成度提示（已填 X / 共 Y 欄位）
+├── Step1Form.tsx — 組圈
+│   ├── 圈員名單（動態新增/刪除列）
+│   ├── 圈徽上傳（圖片預覽）
+│   └── 基本資訊欄位
+├── Step2Form.tsx — 主題選定
+│   ├── 候選主題清單（動態新增）
+│   ├── 評價矩陣表格（圈長代填版）
+│   └── 自動加總 + 選定主題
+├── Step3Form.tsx — 活動計畫
+│   └── 時程表格（步驟 × 預定/實際日期，純表單）
+├── Step4Form.tsx — 現況把握
+│   ├── CSV 上傳元件 + 前端預覽
+│   ├── 「請確認不含個資」灰色提醒
+│   ├── 呼叫 /api/analyze/csv → 顯示統計表
+│   └── 柏拉圖預留位置（Sprint 3 嵌入）
+├── Step5Form.tsx — 目標設定
+│   ├── 自動帶入步驟四 current_rate（有就帶，沒有留空）
+│   ├── 目標值計算公式 UI
+│   └── 呼叫 /api/analyze/target
+└── 專案總覽頁面（十步驟進度條 + 點擊跳入）
 
-### Sprint 4 — AI 對話 + PDF 匯出（2 週）
+Week 2 交付（步驟 6~10）：
+├── Step6Form.tsx — 解析
+│   ├── 5M1E 樹狀列表（六個大分類 + 新增小要因）
+│   ├── 真因勾選
+│   └── 數據結構 = requirements.md main_categories JSON
+├── Step7Form.tsx — 對策擬定
+│   ├── 5W1H 對策表單（動態新增對策卡片）
+│   ├── 評價矩陣（圈長代填版）
+│   └── 採行/不採行分類
+├── Step8Form.tsx — 對策實施
+│   └── 實施進度表格（狀態、前後描述、照片上傳）
+├── Step9Form.tsx — 效果確認
+│   ├── CSV 上傳（同步驟四）
+│   ├── 自動帶入步驟四、五數據做對比
+│   ├── 改善幅度/達成率自動計算顯示
+│   ├── 雷達圖自評（無形成果）前後對比表
+│   └── 柏拉圖預留位置
+├── Step10Form.tsx — 標準化與檢討
+│   ├── SOP 表格（標準化內容 + 文件編號）
+│   └── 檢討表單（優點、待改進、下期建議）
+├── 首頁 — 專案列表頁
+│   ├── 專案卡片（圈名、科別、進度百分比）
+│   └── 建立新專案按鈕
+├── 建立新專案頁面
+│   └── 圈名 + 科別 + 活動期間（三個欄位）
+└── 登入頁面
+```
 
-**目標：同仁能和 AI 對話問問題；能匯出 PDF 報告交差。**
+#### Agent-C：圖表元件（1 週，可提前完成）
+
+> 完全獨立，用 mock data 開發。不需要等 API。
 
 ```
 交付物：
-├── AI 對話
-│   ├── POST /api/chat（streaming response）
-│   ├── claude.ts — 直接封裝 @anthropic-ai/sdk（不做 adapter）
-│   ├── AgentChat.tsx — 對話 UI 元件（嵌在步驟頁面側邊）
-│   ├── 各步驟 system prompt（動態注入專案數據）
-│   ├── ChatHistory 儲存
-│   └── 對話輸入框上方加「請勿輸入個資」灰色提醒
-│
-├── PDF 匯出
-│   ├── docker-compose 加入 browserless/chrome 容器
-│   ├── lib/export.ts — 呼叫 browserless API 將 HTML 轉 PDF
-│   ├── 匯出用隱藏頁面（/project/:id/export/render）
-│   │   └── 十步驟完整報告 HTML（含柏拉圖、雷達圖）
-│   ├── POST /api/projects/:id/export/pdf
-│   └── 缺漏欄位顯示「（待補充）」，不阻擋匯出
-│
-└── 匯出頁面 UI（選擇匯出格式、預覽、下載）
+├── ParetoChart.tsx
+│   ├── ECharts bar + line 複合圖
+│   ├── X 軸分類由高到低排序（「其他」放最末）
+│   ├── 左 Y 軸：次數（bar）
+│   ├── 右 Y 軸：累積百分比（line）
+│   ├── 80% 參考線
+│   ├── 累積百分比起始值 = 0%
+│   ├── Props: { data: ParetoItem[], title?: string }
+│   └── PNG 下載按鈕（getDataURL）
+├── RadarChart.tsx
+│   ├── ECharts radar
+│   ├── 改善前（虛線）vs 改善後（實線）
+│   ├── Props: { criteria: string[], before: number[], after: number[] }
+│   └── PNG 下載按鈕
+├── ParetoComparison.tsx
+│   ├── 兩張柏拉圖並排（改善前 vs 改善後）
+│   └── 改善幅度/達成率摘要卡片
+├── lib/chart-data.ts
+│   ├── sortPareto() — 排序+累積百分比計算
+│   ├── calculateImprovement() — 改善幅度
+│   └── calculateAchievement() — 目標達成率
+└── Storybook 或獨立 demo 頁面驗證
 ```
 
-**AI 範圍限制（MVP）：**
-- 只做**對話問答**，不做「AI 幫我填」（草稿自動填入表單）
-- 同仁可以問 AI「這步該怎麼寫」「幫我分析這組數據」，AI 回答後同仁自己複製貼上
-- 這樣可以先驗證 AI 的實際價值，再決定是否投入「AI 幫我填」的開發
+#### Agent-I：AI 對話整合（1.5 週，可提前完成）
 
-**PDF 匯出策略：**
-- 建一個隱藏的 HTML 報告頁面，把十步驟的內容渲染成排版好的 HTML
-- 呼叫 browserless 容器對這個頁面截圖/轉 PDF
-- 好處：所見即所得，中文字型由 browserless 處理，不需要操心 jsPDF
-
----
-
-### Sprint 5 — 管理員 + 收尾（1 週）
-
-**目標：管理員能看到全院進度；系統可以正式上線。**
+> 核心依賴只有 Prisma schema（ChatHistory 表）和基本 Layout。
 
 ```
 交付物：
-├── 管理員儀表板
-│   ├── GET /api/admin/dashboard
-│   ├── 一眼總覽卡片（進行中 / 卡關 / 即將到期 / 已完成）
-│   ├── 全圈隊進度表（圈名、科別、目前步驟、落後狀態）
-│   └── 點擊圈名跳到專案總覽
-│
-├── 帳號管理
-│   ├── 帳號 CRUD API
-│   ├── 管理員帳號管理頁面
+├── lib/claude.ts
+│   ├── 封裝 @anthropic-ai/sdk
+│   ├── streamChat(messages, systemPrompt) → ReadableStream
+│   └── 不做 adapter，直接呼叫 Claude
+├── POST /api/chat
+│   ├── 接收 { projectId, stepNumber, message }
+│   ├── 組裝 system prompt（動態注入專案數據）
+│   ├── streaming response（text/event-stream）
+│   └── 完成後儲存 ChatHistory
+├── GET /api/projects/:id/chat/history
+│   └── 依 stepNumber 分組回傳
+├── 10 套 system prompt（每步驟一套）
+│   ├── 角色定義 + 步驟目的 + 關鍵要點 + 常見錯誤
+│   ├── 步驟 5 注入步驟 4 的 current_rate, vital_few
+│   ├── 步驟 7 注入步驟 6 的 confirmed_root_causes
+│   └── 步驟 9 注入步驟 4, 5 數據
+├── AgentChat.tsx — 對話 UI 元件
+│   ├── 可摺疊側邊面板（不佔主表單空間）
+│   ├── 訊息列表（user/assistant 氣泡）
+│   ├── streaming 逐字顯示
+│   ├── 輸入框 + 送出按鈕
+│   ├── 輸入框上方灰色提醒：「請勿輸入病患個資」
+│   └── 歷史紀錄載入
+└── 步驟頁面整合（AgentChat 嵌入步驟表單右側）
+```
+
+---
+
+### Sprint 4 — 匯出 + 整合（Agent-E + Agent-D，1.5 週）
+
+> 等 Agent-S（表單）和 Agent-C（圖表）完成後才能開始。
+
+#### Agent-E：PDF 匯出（1 週）
+
+```
+交付物：
+├── docker-compose.yml 加入 browserless/chrome 容器
+│   ├── image: browserless/chrome
+│   ├── MAX_CONCURRENT_SESSIONS=2
+│   └── 確認中文字型正確
+├── lib/export.ts
+│   ├── generatePDF(projectId) → Buffer
+│   ├── 呼叫 browserless API：POST http://qcc-browserless:3000/pdf
+│   └── 傳入隱藏報告頁面 URL
+├── /project/[id]/export/render/page.tsx（隱藏頁面）
+│   ├── 讀取所有步驟 data
+│   ├── 渲染十步驟完整報告 HTML
+│   ├── 嵌入 ParetoChart + RadarChart
+│   ├── 缺漏欄位顯示「（待補充）」
+│   └── 排版：A4 尺寸、適當分頁、院徽/頁首頁尾
+├── POST /api/projects/:id/export/pdf
+│   └── 回傳 PDF Buffer → 前端下載
+└── /project/[id]/export/page.tsx — 匯出頁面 UI
+    ├── 匯出前 checklist（各步驟填寫狀態一覽）
+    ├── 「匯出 PDF」按鈕 + 進度提示
+    └── 下載完成提示
+```
+
+#### Agent-D：管理員 + 收尾（1 週，與 Agent-E 並行）
+
+```
+交付物：
+├── 管理員儀表板頁面
+│   ├── 一眼總覽卡片（進行中/卡關/即將到期/已完成）
+│   ├── 全圈隊進度表（圈名、科別、步驟、落後狀態）
+│   ├── 依科別/狀態篩選排序
+│   └── 點擊圈名 → 跳到專案總覽
+├── 帳號管理頁面
+│   ├── 帳號列表 + 新增/編輯/停用
 │   └── 密碼重設
-│
-├── 收尾
-│   ├── 錯誤處理（全域 error boundary + API 錯誤統一格式）
-│   ├── 載入狀態（skeleton loading）
-│   ├── 響應式微調（確保平板可用）
-│   ├── Docker 部署測試
-│   └── 種子資料（demo 專案 + 預設帳號）
+├── 收尾整合
+│   ├── 全域 Error Boundary
+│   ├── API 錯誤統一格式
+│   ├── Skeleton Loading（步驟頁面、專案列表）
+│   ├── 響應式微調（平板可用）
+│   ├── Agent-S + Agent-C + Agent-I 整合測試
+│   │   ├── 步驟四表單 → CSV 上傳 → 柏拉圖顯示
+│   │   ├── 步驟九表單 → 前後對比 → 改善幅度計算
+│   │   └── 任一步驟 → 開啟 AI 對話 → 正常 streaming
+│   ├── Docker 全環境部署測試
+│   └── prisma/seed.ts 更新（demo 專案含完整十步驟範例數據）
 ```
 
-**不做：**
-- ~~範本管理~~ → MVP 不做範本，seed 一個 demo 專案就好
-- ~~輔導紀錄~~ → MVP 後再加
-- ~~教學中心~~ → MVP 後再加
-- ~~評鑑報告~~ → MVP 後再加
-- ~~知識庫~~ → MVP 後再加
+## Phase 1 時程甘特圖
+
+```
+        Week 1       Week 2       Week 3       Week 4       Week 5
+        ──────────── ──────────── ──────────── ──────────── ────────
+Agent-F ████████████
+        地基+Spike
+
+Agent-A              ████████████ ████████████
+                     Auth+Project  Upload+Analyze
+                     Step API      Admin API
+
+Agent-S              ████████████ ████████████ ██████
+                     Step 1~5      Step 6~10    整合
+                     自動儲存       KPI sync     修補
+
+Agent-C              ████████████
+                     Pareto+Radar
+                     (mock data)
+
+Agent-I              ████████████ ██████
+                     Claude+Chat   Prompt
+                     streaming     整合
+
+Agent-E                                        ████████████
+                                               Browserless
+                                               Report HTML
+                                               Export API
+
+Agent-D                                        ████████████ ████████
+                                               Admin 儀表板  收尾
+                                               帳號管理      部署
+
+                                                             ✅ MVP
+                                                             上線
+```
+
+**關鍵路徑：** Agent-F → Agent-S（最長） → Agent-E → Agent-D
+**並行最大化：** Week 2~3 同時跑 4 個 Agent（A, S, C, I）
 
 ---
 
-## 時程總覽
+# Phase 2 — 強化（MVP 上線後 3~4 週）
+
+> **目標：讓系統從「能用」變成「好用」。** 根據 MVP 使用回饋決定優先順序。
+
+## Phase 2 功能範圍
+
+| 功能群 | 內容 | 價值 |
+|--------|------|------|
+| **AI 強化** | AI 幫我填（草稿自動填入）、AI 草稿標記/確認機制 | 大幅降低同仁填寫負擔 |
+| **互動圖表** | 魚骨圖 ECharts 互動編輯器、甘特圖 | 報告視覺品質提升 |
+| **評價矩陣完整版** | 每位圈員各別打分 → 自動加總 | 評審要求 |
+| **輔導機制** | 輔導紀錄 CRUD、建議追蹤、一鍵輔導摘要 | 月會報告用 |
+| **通知** | Notification 表 + Header 小紅點 | 輔導建議通知 |
+| **資安強化** | CSV 白名單欄位過濾、固定格式 PII 攔截 | 合規要求 |
+| **UX 優化** | 精簡/完整模式切換、圖表設定持久化 | 使用體驗提升 |
+
+## Phase 2 Agent 並行規劃
 
 ```
-Sprint 0  ████                     地基（1 週）
-Sprint 1  ████                     登入 + 專案（1 週）
-Sprint 2a ██████                   步驟 1~5（1.5 週）
-Sprint 2b ██████                   步驟 6~10（1.5 週）
-Sprint 3  ██████                   圖表（1.5 週）
-Sprint 4  ████████                 AI + PDF（2 週）
-Sprint 5  ████                     管理員 + 收尾（1 週）
-          ────────────────────────────────────────
-          總計約 9~10 週
+Agent-AI    AI 強化         AI 幫我填 + 草稿標記 + 健康度建議
+Agent-VIZ   互動圖表        魚骨圖編輯器 + 甘特圖 + chart_config
+Agent-COA   輔導機制        輔導紀錄 + 通知 + 月會匯出
+Agent-SEC   資安 + UX      PII 過濾 + 精簡模式 + 評價矩陣完整版
 ```
 
-## MVP 交付物清單
+### Agent-AI：AI 強化（2 週）
 
-完成後，系統能做到：
+```
+Week 1：
+├── POST /api/projects/:id/steps/:n/ai-draft
+│   ├── 依現有專案數據 + 步驟 context → 產生該步驟完整草稿
+│   ├── 回傳結構化 JSON（對應 StepNData 型別）
+│   └── streaming response
+├── 前端「AI 幫我填」按鈕
+│   ├── 點擊 → 呼叫 ai-draft API
+│   ├── streaming 填入各欄位
+│   ├── AI 填入期間暫停自動儲存
+│   ├── 填入完成 → 觸發一次完整儲存
+│   └── AI 產生的欄位背景變淺藍色
+├── Step.ai_draft_fields JSONB 更新
+│   └── 記錄哪些欄位是 AI 產生、是否已確認
+└── 同仁編輯 AI 欄位後 → 背景變白 → 標記 confirmed
 
-- [x] 同仁能登入、建立品管圈專案
-- [x] 十大步驟能填寫、自動儲存、自由跳步
-- [x] CSV 上傳 → 自動產生柏拉圖（改善前/後）
-- [x] 改善幅度、目標達成率自動計算
-- [x] 雷達圖（無形成果）
-- [x] 和 AI 對話問問題（每步驟有專屬 system prompt）
-- [x] 匯出 PDF 報告（含圖表、中文字型）
-- [x] 管理員看全院進度、卡關預警
-- [x] 帳號管理
+Week 2：
+├── AI 健康度建議（專案總覽頁右側）
+│   ├── GET /api/projects/:id/health
+│   ├── 分析所有步驟 status + data
+│   ├── 友善教練語氣建議（可收合）
+│   └── 每條建議附「要我幫你處理嗎？」按鈕
+└── 各步驟 AI 進場時機優化
+    ├── 空白步驟 → AI 主動詢問「需要幫你產生草稿嗎？」
+    ├── 步驟四上傳 CSV → AI 自動分析 + 產生描述
+    └── 步驟九完成 → AI 提示「要我幫你填步驟十的檢討嗎？」
+```
 
-## MVP 不做但已設計好的（第二波）
+### Agent-VIZ：互動圖表（2 週）
 
-以下功能在 `requirements.md` 中已完整定義，MVP 後可依優先順序逐步加入：
+```
+Week 1：
+├── FishboneChart.tsx — 魚骨圖互動編輯器
+│   ├── ECharts custom series 或 SVG 繪製
+│   ├── 5M1E 預設大骨
+│   ├── 點擊大骨 → 新增小要因
+│   ├── 拖拽調整位置
+│   ├── 雙擊編輯文字
+│   ├── 真因標記（紅色高亮）
+│   └── 數據結構不變（main_categories JSON）
+└── 替換 Step6Form 的樹狀列表為 FishboneChart
 
-| 優先 | 功能 | 理由 |
-|:---:|------|------|
-| 1 | AI 幫我填（草稿自動填入） | MVP 驗證 AI 價值後再做 |
-| 2 | 魚骨圖互動編輯器 | MVP 用樹狀列表替代，功能完整 |
-| 3 | 甘特圖 | MVP 用文字時程表替代 |
-| 4 | 輔導紀錄 + 通知 | 下次輔導月會前加 |
-| 5 | 精簡/完整模式切換 | 看同仁使用反饋決定 |
-| 6 | PII 完整防護（白名單過濾 + regex） | MVP 後強化 |
-| 7 | LLM Adapter（地端模型支援） | 醫院要求時再做 |
-| 8 | upstream_snapshot + hash 比對 | 數據一致性問題浮現時再加 |
-| 9 | 評鑑報告 / 知識庫 | 累積足夠專案後才有意義 |
-| 10 | 趨勢分析 / 效益量化 | 長期功能 |
+Week 2：
+├── GanttChart.tsx — 甘特圖
+│   ├── ECharts bar 橫向
+│   ├── 虛線 = 預定、實線 = 實際
+│   ├── 時間軸自動計算
+│   └── 嵌入 Step3Form
+├── chart_config 持久化
+│   ├── Step.data.chart_config 儲存自訂設定
+│   ├── 標題覆寫、顏色主題、數據標籤開關
+│   └── 載入時套用、修改後自動儲存
+└── 評價矩陣完整版（Step2Form, Step7Form）
+    ├── 每位圈員各別打分 UI
+    ├── 自動加總 + 排名
+    └── 向下相容圈長代填版數據
+```
 
-## 技術風險與 Spike
+### Agent-COA：輔導機制（1.5 週）
 
-在 Sprint 0 開始前或進行中，需要驗證的技術風險：
+```
+交付物：
+├── 輔導紀錄 API
+│   ├── GET/POST /api/projects/:id/coaching
+│   ├── PUT /api/coaching/:cid
+│   └── PUT /api/coaching/:cid/suggestions/:sid
+├── /project/[id]/coaching/page.tsx
+│   ├── 輔導紀錄時間軸
+│   ├── 新增紀錄（日期 + 老師 + 逐條建議）
+│   ├── 建議可選擇關聯步驟（選填）
+│   └── 追蹤狀態（待處理/已完成，選填）
+├── 通知機制
+│   ├── Notification API（GET/PUT read status）
+│   ├── Header NotificationBell 元件（小紅點 + 下拉清單）
+│   └── 新增輔導建議 → 自動通知圈隊成員
+├── 一鍵輔導摘要
+│   ├── POST /api/projects/:id/export/coaching-summary
+│   └── 自動彙整：已完成步驟 + 目前進展 + 待討論事項 + 圖表
+└── 管理員月會匯出
+    ├── POST /api/admin/export/monthly
+    └── 全院進度總表 PDF/Excel
+```
 
-| 風險 | 驗證方式 | 預計時間 |
-|------|---------|---------|
-| Browserless + 中文 PDF | 起一個 browserless 容器，渲染含中文 + ECharts 的 HTML → PDF | 半天 |
-| ECharts 柏拉圖規格 | 寫一個獨立的柏拉圖 demo（bar + line + 80% 線 + 累積起始 0%），確認渲染正確 | 半天 |
-| CSV stream 解析 | 用 fast-csv pipeline 解析 1 萬行 CSV，驗證記憶體使用與效能 | 2 小時 |
-| Claude streaming in Next.js | 在 API Route 中用 @anthropic-ai/sdk streaming，確認前端能即時顯示 | 2 小時 |
+### Agent-SEC：資安 + UX（1.5 週）
 
-建議在 Sprint 0 的第一天先跑這四個 spike，確認技術路線可行後再全速開發。
+```
+交付物：
+├── lib/csv-sanitizer.ts — CSV 白名單欄位過濾
+│   ├── 掃描欄位名稱 → 標記疑似個資欄位
+│   ├── 只提取統計欄位（時間、類別、次數）
+│   ├── 前端預覽：「以下欄位將被送至分析，其餘將移除」
+│   └── 管理員可設定白名單規則
+├── lib/pii-filter.ts — 固定格式攔截
+│   ├── 身分證字號、病歷號、電話、Email
+│   ├── API middleware 自動套用
+│   └── 偵測到 → 攔截 + 前端黃色提示
+├── 精簡/完整模式切換
+│   ├── Step.view_mode 欄位（quick/full）
+│   ├── 精簡模式只顯示核心欄位
+│   ├── 切換按鈕 + 模式記憶
+│   └── 精簡模式填過的內容在完整模式中保留
+└── UI 提醒強化
+    ├── CSV 上傳頁「安全提醒」卡片
+    └── AI 輸入框常駐提醒文字
+```
+
+## Phase 2 時程甘特圖
+
+```
+        Week 1       Week 2       Week 3       Week 4
+        ──────────── ──────────── ──────────── ────────
+Agent-AI ████████████ ████████████
+         AI 幫我填     健康度建議
+         草稿標記      進場時機
+
+Agent-VIZ████████████ ████████████
+         魚骨圖編輯器  甘特圖
+                      chart_config
+                      評價矩陣完整版
+
+Agent-COA████████████ ██████
+         輔導紀錄      通知+匯出
+         建議追蹤
+
+Agent-SEC████████████ ██████
+         CSV 過濾      精簡/完整
+         PII 攔截      模式切換
+
+                                   ████████████
+                                   整合測試 +
+                                   Phase 2 上線
+
+                                                ✅ Phase 2
+                                                上線
+```
+
+**四個 Agent 完全並行，無依賴。** 整合測試在 Week 3 後半進行。
+
+---
+
+# Phase 3 — 醫院治理（Phase 2 上線後 3~4 週）
+
+> **目標：從「單圈工具」升級為「全院品管治理平台」。**
+> 需要累積足夠的完成專案數據才有意義，因此放在最後。
+
+## Phase 3 功能範圍
+
+| 功能群 | 內容 | 價值 |
+|--------|------|------|
+| **知識庫** | 歷年專案瀏覽/搜尋、真因庫、對策庫 | 經驗傳承，後人不重新發明輪子 |
+| **評鑑報告** | 年度成果摘要、指標改善對照表 | 直接拿去 JCI/醫院評鑑 |
+| **數據一致性** | upstream_snapshot + hash 比對 | 防止數據邏輯斷裂 |
+| **持續改善** | SOP 追蹤、3/6/12 月追蹤回填、延續型專案 | PDCA 閉環 |
+| **LLM 彈性** | LLM Adapter（支援地端模型） | Air-gapped 醫院需求 |
+| **趨勢分析** | 年度趨勢圖、科別熱力圖、主題詞雲 | 醫院高層決策 |
+| **效益量化** | 效益填報、全院彙總、AI 推估 | 證明品管圈活動的投資回報 |
+| **進階匯出** | PPT 簡報、成果發表海報 | 成果發表會用 |
+
+## Phase 3 Agent 並行規劃
+
+```
+Agent-KB     知識庫        全院知識庫 + 搜尋 + 真因/對策庫
+Agent-RPT    報告 + 趨勢   評鑑報告 + 年度統計 + 熱力圖
+Agent-INT    數據一致性     snapshot + hash + 持續追蹤 + LLM Adapter
+Agent-EXP    進階匯出 + 效益  PPT + 海報 + 效益量化
+```
+
+### Agent-KB：知識庫（2 週）
+
+```
+Week 1：
+├── 專案公開機制
+│   ├── PUT /api/admin/projects/:id/public — 標記知識庫公開
+│   ├── 去識別化邏輯（移除圈員真名，僅保留職稱）
+│   └── 公開專案唯讀瀏覽頁面
+├── GET /api/knowledge/search
+│   ├── PostgreSQL 全文搜尋（pg_trgm）
+│   ├── 依科別、主題分類篩選
+│   └── 回傳匹配專案列表 + 摘要
+└── /admin/knowledge/page.tsx — 知識庫管理頁面
+
+Week 2：
+├── GET /api/knowledge/root-causes
+│   ├── 從已完成專案的步驟六 JSONB 聚合
+│   ├── 依主題分類歸類常見真因
+│   └── 顯示出現頻率
+├── GET /api/knowledge/countermeasures
+│   ├── 從步驟七+九聚合有效對策
+│   ├── 依改善幅度排序
+│   └── 顯示成功案例連結
+└── AI 步驟六/七 system prompt 整合
+    ├── 做魚骨圖時 → AI 參考歷年真因庫
+    └── 擬對策時 → AI 推薦歷年有效對策
+```
+
+### Agent-RPT：報告 + 趨勢（2 週）
+
+```
+Week 1：
+├── POST /api/admin/export/annual-report — 年度成果摘要 PDF
+│   ├── 自動彙整全院 KPI（從 Project 表 denormalized 欄位）
+│   ├── 圈隊數、完成率、平均改善幅度、達成率
+│   ├── 改善主題分布圖（ECharts pie/bar）
+│   └── 代表圈隊精選（is_featured）
+├── PUT /api/admin/projects/:id/featured — 標記代表圈隊
+└── /admin/reports/page.tsx — 評鑑報告頁面
+    ├── 選擇年度範圍
+    ├── 預覽摘要數據
+    └── 一鍵匯出 PDF
+
+Week 2：
+├── GET /api/admin/analytics/trends — 逐年趨勢數據
+│   └── 年度 × 圈隊數/完成率/改善幅度折線圖
+├── GET /api/admin/analytics/department-heatmap — 科別熱力圖
+│   └── 科別 × 年度 × 圈隊數/改善幅度 矩陣
+├── /admin/analytics/page.tsx — 趨勢分析頁面
+│   ├── 趨勢折線圖
+│   ├── 科別熱力圖
+│   └── 改善主題詞雲（簡版：依 topic_category 聚合）
+└── 管理員儀表板增加年度統計區塊
+```
+
+### Agent-INT：數據一致性 + 基礎設施（2 週）
+
+```
+Week 1：
+├── upstream_snapshot 機制
+│   ├── 步驟五/九標記完成 → 快照上游核心數據
+│   ├── data_hash（MD5）計算
+│   ├── 上游修改時比對 hash
+│   ├── hash 相同 → 不提示
+│   └── hash 不同 → 「上游核心數據已更新」提示 + 重新同步按鈕
+├── lib/step-linking.ts 重構
+│   ├── 核心數據欄位定義（per step）
+│   ├── hash 計算邏輯
+│   └── snapshot 凍結/更新邏輯
+└── 步驟間連動 UI 更新
+
+Week 2：
+├── lib/llm-adapter.ts — LLM 抽象層
+│   ├── interface LLMAdapter { chat, estimateTokens }
+│   ├── ClaudeAdapter（提取現有 claude.ts 邏輯）
+│   ├── OllamaAdapter（Ollama REST API）
+│   ├── VLLMAdapter（OpenAI-compatible API）
+│   └── LLM_PROVIDER 環境變數切換
+├── 持續改善追蹤
+│   ├── FollowUp API（GET/PUT）
+│   ├── 專案完成時自動建立 3/6/12 月追蹤排程
+│   ├── /project/[id]/follow-up/page.tsx — 追蹤回填頁面
+│   └── 到期提醒 → Notification
+└── 延續型專案
+    ├── POST /api/projects/:id/continue — 一鍵建立延續專案
+    ├── 自動帶入原專案的改善後數據作為新專案的改善前基準
+    └── Project.continuation_of 關聯
+```
+
+### Agent-EXP：進階匯出 + 效益（1.5 週）
+
+```
+Week 1：
+├── PPT 簡報匯出
+│   ├── pptxgenjs
+│   ├── 成果發表用（關鍵圖表 + 摘要文字）
+│   ├── POST /api/projects/:id/export/ppt
+│   └── 投影片模板（封面 + 十步驟各一頁 + 感謝頁）
+├── 效益填報
+│   ├── ProjectBenefit API（GET/PUT）
+│   ├── Step10Form 增加效益區塊（選填）
+│   └── 效益類型選擇 + 描述 + 量化數值
+└── 全院效益彙總
+    ├── GET /api/admin/analytics/benefits
+    ├── 依類型彙總（時間節省、成本節省、品質提升）
+    └── 納入年度報告
+
+Week 1.5：
+├── 成果發表海報（A0/A1）
+│   ├── 海報 HTML 模板
+│   ├── Browserless 渲染 → 高解析度 PDF
+│   └── POST /api/projects/:id/export/poster
+└── 報告範本自訂
+    ├── /admin/report-settings/page.tsx
+    ├── 院徽、頁首頁尾文字
+    ├── 步驟呈現順序調整
+    └── 儲存為全院範本
+```
+
+## Phase 3 時程甘特圖
+
+```
+        Week 1       Week 2       Week 3       Week 4
+        ──────────── ──────────── ──────────── ────────
+Agent-KB ████████████ ████████████
+         專案公開      真因/對策庫
+         搜尋功能      AI 整合
+
+Agent-RPT████████████ ████████████
+         年度報告      趨勢分析
+         代表圈隊      熱力圖
+
+Agent-INT████████████ ████████████
+         snapshot     LLM Adapter
+         hash 比對     追蹤+延續
+
+Agent-EXP████████████ ██████
+         PPT+效益      海報+範本
+
+                                   ████████████
+                                   整合測試 +
+                                   Phase 3 上線
+
+                                                ✅ Phase 3
+                                                上線
+```
+
+---
+
+# 全局時程總覽
+
+```
+Month 1              Month 2              Month 3
+──────────────────── ──────────────────── ────────────────────
+
+Phase 1 — MVP
+████████████████████ ██████
+地基 → 4 Agent 並行 → 匯出+收尾
+                          ↓
+                      ✅ MVP 上線
+                      （同仁開始使用）
+
+                          Phase 2 — 強化
+                          ████████████████████
+                          4 Agent 並行 → 整合
+                                              ↓
+                                          ✅ Phase 2 上線
+
+                                              Phase 3 — 治理
+                                              ████████████████
+                                              4 Agent 並行 →
+                                                           ↓
+Month 4                                                ✅ Phase 3
+────────                                               上線
+████████
+整合 + 上線
+
+總計：約 12~14 週（3~3.5 個月）
+```
+
+## 各階段 Agent 數量
+
+| 階段 | 最大並行 Agent 數 | 瓶頸 |
+|------|:---:|------|
+| Phase 1 Sprint 0 | 1 | 地基必須先完成 |
+| Phase 1 Sprint 1~3 | **4** | Agent-A, S, C, I 同時 |
+| Phase 1 Sprint 4 | 2 | Agent-E, D 同時（等 S+C 完成） |
+| Phase 2 | **4** | AI, VIZ, COA, SEC 無依賴 |
+| Phase 3 | **4** | KB, RPT, INT, EXP 無依賴 |
