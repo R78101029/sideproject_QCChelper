@@ -578,6 +578,23 @@
 - 同仁主動按「重新同步」時，快照才會更新
 - 快照包含凍結時間戳，方便回溯「當時是基於什麼數據做的分析」
 
+**核心數據 Hash 比對（避免狼來了）：**
+
+> 如果上游只是「改了個錯字」但核心統計數據沒變，下游不應跳警告。否則同仁會習慣性忽略警告。
+
+- upstream_snapshot 中包含 `data_hash` 欄位：對上游**核心數據欄位**（不含描述文字）計算 MD5
+- 上游儲存時，比對新數據的 hash 與下游 snapshot 中的 hash
+- **Hash 相同**（只改了文字描述）→ 不提示下游
+- **Hash 不同**（改了統計數據、改了目標值）→ 下游顯示「上游核心數據已更新」提示
+
+各步驟的核心數據欄位定義：
+
+| 上游步驟 | 核心數據欄位（納入 hash 計算） | 不納入的欄位 |
+|---------|--------------------------|------------|
+| 步驟四 | `current_rate`, `categories`, `pareto_sorted`, `vital_few` | `description`, `chart_config` |
+| 步驟五 | `target_value`, `current_value`, `theme_type` | `reason` |
+| 步驟六 | `confirmed_root_causes` | `fishbone_topic`, 各大骨描述文字 |
+
 ---
 
 ### 3.9 步驟完成度與彈性流程
@@ -920,8 +937,8 @@ PII Filter:  本地端個資遮蔽過濾器（送 LLM 前攔截）
 Search:      Web Search API (文獻搜尋)
 Charts:      ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖、趨勢圖、熱力圖)
 File:        Docker volume 掛載 (/uploads)
-Export:      Puppeteer (HTML→PDF) 或 jsPDF（spike 後決定）+ pptxgenjs
-Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx)
+Export:      Browserless/chrome 容器（HTML→PDF）+ pptxgenjs
+Deployment:  Docker Compose (Next.js + PostgreSQL + Nginx + Browserless)
 ```
 
 ### 5.1.1 LLM 抽象層設計
@@ -945,37 +962,58 @@ class VLLMAdapter implements LLMAdapter { ... }     // 備選：地端 vLLM
 - **不使用 LangChain** — 抽象層太厚、依賴太多，一個 50 行的 adapter 就夠
 - 所有 adapter 統一回傳 `AsyncIterable<string>`，前端 streaming 邏輯不變
 
-### 5.1.2 PII/PHI 個資遮蔽機制
+### 5.1.2 PII/PHI 個資防護機制
 
 > **這是資安層級的必要功能，不是可選功能。**
 
 臨床同仁在 CSV、Word 或手打描述中，極容易不小心夾帶病歷號、姓名、身分證字號、出生日期等個資。這些內容若送至雲端 LLM，將構成醫院嚴重的資安事件。
 
-**架構設計：**
+**核心策略：物理斷絕 > 文字遮蔽**
+
+> 中文姓名偵測用 regex/NLP 極度不可靠（「王伯伯」「WANG, DA MING」「3-1 床」全部抓不到或誤殺）。
+> 因此採用**白名單過濾**策略：只提取需要的欄位，其餘直接丟棄，從物理上斷絕個資外流。
+
+**分層防護架構：**
 
 ```
-使用者輸入 → PII Filter (本地端) → 遮蔽後文本 → LLM API → AI 回應
-                ↓
-         偵測到個資時提示同仁
+┌─────────────────────────────────────────────────────────┐
+│ 第一層：CSV/Excel — 白名單欄位過濾（物理斷絕）              │
+│   後端只提取「時間、類別、次數」等統計欄位                    │
+│   「備註」「病患姓名」「病歷號」等欄位 → 整欄丟棄（Drop）      │
+│   前端預覽時掃描欄位名稱，主動提醒同仁                       │
+├─────────────────────────────────────────────────────────┤
+│ 第二層：自由輸入文字 — 固定格式攔截（Regex）                 │
+│   只攔截有明確固定格式的個資，不嘗試辨識中文姓名               │
+├─────────────────────────────────────────────────────────┤
+│ 第三層：UI 警告（行為引導）                                │
+│   輸入框上方顯示常駐提醒：「請勿輸入病患姓名或個資」           │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**遮蔽規則（正則表達式 + 規則引擎）：**
+**第一層 — CSV 白名單過濾（`lib/csv-sanitizer.ts`）：**
 
-| 個資類型 | 偵測模式 | 遮蔽方式 |
+| 動作 | 說明 |
+|------|------|
+| 欄位名稱掃描 | 上傳時自動偵測欄位名稱，標記疑似個資欄位（含「姓名」「name」「ID」「病歷」「身分證」等關鍵字） |
+| 白名單提取 | 只提取統計所需的欄位（時間、類別、次數、數值），其餘欄位**整欄丟棄** |
+| 前端預覽確認 | 顯示「以下欄位將被送至分析，其餘欄位將被移除」，同仁確認後才送出 |
+| 管理員設定 | 管理員可自訂白名單欄位規則（系統設定） |
+
+**第二層 — 自由文字固定格式攔截（`lib/pii-filter.ts`）：**
+
+| 個資類型 | 偵測模式 | 處理方式 |
 |---------|---------|---------|
-| 身分證字號 | `/[A-Z][12]\d{8}/` | `[身分證已遮蔽]` |
-| 病歷號 | 醫院病歷號格式（可設定正則） | `[病歷號已遮蔽]` |
-| 電話號碼 | `/09\d{8}/`, `/0\d{1,2}-?\d{6,8}/` | `[電話已遮蔽]` |
-| 姓名疑似 | 2~4 個中文字 + 上下文判斷（「病患」「個案」「家屬」後方） | `[姓名已遮蔽]` |
-| 日期 + 年齡組合 | 「XX歲」「民國XX年生」等 | `[個資已遮蔽]` |
-| Email | 標準 email 格式 | `[Email已遮蔽]` |
+| 身分證字號 | `/[A-Z][12]\d{8}/` | 攔截並提示 |
+| 病歷號 | 醫院自訂正則（`PII_MEDICAL_RECORD_PATTERN`） | 攔截並提示 |
+| 電話號碼 | `/09\d{8}/` | 攔截並提示 |
+| Email | 標準 email 格式 | 攔截並提示 |
 
-**實作要點：**
-- 過濾器位於 `lib/pii-filter.ts`，所有送往 LLM 的文本必須先經過此過濾器
-- API middleware 層自動套用，開發者無需手動呼叫
-- 偵測到個資時：(1) 遮蔽後送出 (2) 前端顯示黃色提示「已自動遮蔽 N 處疑似個資」
-- 管理員可在系統設定中自訂病歷號格式的正則表達式
-- CSV 上傳時，在前端預覽階段就先掃描欄位名稱（如「姓名」「ID」「病歷號」欄），主動提醒同仁移除
+> **明確不做的事**：不嘗試用 regex 或 NLP 辨識中文姓名。這在中文醫療情境極度不可靠，False Negative（漏網）和 False Positive（誤殺）都是問題。MVP 不做不切實際的承諾。
+
+**第三層 — UI 行為引導：**
+- 所有 AI 對話輸入框上方顯示淺灰色提醒文字：「AI 分析僅處理統計數據，請勿輸入病患姓名、病歷號等個資」
+- 偵測到固定格式個資時，彈出黃色提示：「偵測到疑似個資（身分證字號），已自動移除，請確認」
+- CSV 上傳頁面顯示「安全提醒」卡片，說明哪些欄位會被保留、哪些會被丟棄
 
 ### 5.1.3 大檔數據處理策略
 
@@ -986,10 +1024,38 @@ class VLLMAdapter implements LLMAdapter { ... }     // 備選：地端 vLLM
 | 項目 | 規格 |
 |------|------|
 | CSV 行數上限 | 單檔最多 50,000 行。超過時提示同仁「建議先在 Excel 做初步篩選」 |
-| 處理流程 | 後端程式先做資料聚合（Group By 類別 → Count）→ 將「統計後的摘要數據」交給 AI 產生文案與圖表 |
-| 記憶體保護 | 使用 streaming parser（如 `papaparse` streaming mode），不一次讀入全檔 |
-| AI 上下文 | 只傳「聚合後的分類統計表」給 LLM（通常 < 50 行），不傳原始逐筆數據 |
+| 處理流程 | 後端先做白名單欄位過濾（5.1.2）→ Stream 逐行聚合 → 將「統計後的摘要數據」交給 AI |
+| AI 上下文 | 只傳「聚合後的分類統計表」給 LLM（通常 < 50 行），**絕對不傳原始逐筆數據** |
 | 超大檔降級 | 超過 50,000 行時，自動抽樣（隨機取 10%）+ 全量聚合，並在結果中標註「基於抽樣分析」 |
+
+**Stream 解析規範（強制）：**
+
+> Next.js API Route 是單執行緒 Node.js 環境。同步處理萬筆資料會阻塞 Event Loop，導致整個系統無回應。
+
+```typescript
+// ✅ 正確做法：Stream pipeline 逐行聚合
+import { pipeline } from 'stream/promises'
+import { parse } from 'fast-csv'
+
+await pipeline(
+  fileStream,
+  parse({ headers: true }),
+  async function* (rows) {
+    for await (const row of rows) {
+      aggregator.add(row)  // 逐行聚合，記憶體恆定
+    }
+  }
+)
+const summary = aggregator.getResult()  // 只有摘要數據
+
+// ❌ 禁止做法：一次載入全檔
+const data = JSON.parse(fs.readFileSync(file))  // 會 OOM
+const rows = csvString.split('\n').map(...)      // 會阻塞 Event Loop
+```
+
+- **必須使用** `fast-csv` 或 `papaparse` 的 stream mode，搭配 Node.js `pipeline`
+- **禁止** 一次讀入全檔（`readFileSync`、`JSON.parse(全檔)`、同步 `.split().map()` 迴圈）
+- 聚合器（aggregator）在 stream 過程中逐行累加，記憶體使用量恆定，不隨檔案大小增長
 
 ### 5.2 技術選型理由
 
@@ -1087,11 +1153,15 @@ QCC Helper 從零開始設計，無歷史包袱，因此選擇更精簡的全端
 # docker-compose.yml 預計結構
 services:
   # ── 共用基礎設施 ──
-  nginx:          # 反向代理 (:80/:443)
+  nginx:          # 反向代理 (:80/:443)，需設定 client_max_body_size 20m
   postgres:       # PostgreSQL 16 (:5432)
 
   # ── QCC Helper ──
-  qcc-app:        # Next.js (:3000)
+  qcc-app:        # Next.js (:3000)，主應用（不含 Chromium）
+  qcc-browserless: # browserless/chrome 容器（PDF 匯出專用）
+                   # 自帶中文字型，獨立運行，qcc-app 透過 HTTP API 呼叫
+                   # image: browserless/chrome:latest
+                   # 環境變數：MAX_CONCURRENT_SESSIONS=2, CONNECTION_TIMEOUT=30000
 
   # ── CQI365 Hospital ──
   cqi365-app:     # React SPA + Nginx (:5170)
@@ -1105,6 +1175,12 @@ volumes:
 networks:
   hospital-net:   # 所有服務在同一內部網路
 ```
+
+> **為什麼 PDF 匯出用獨立容器？**
+> - Puppeteer/Chromium 打包進 Next.js Docker image 會暴增 1GB+
+> - 醫院 Linux 伺服器通常缺中文字型，browserless/chrome 自帶完整字型
+> - Chromium 在 Docker 內執行有 `--no-sandbox` 權限問題，獨立容器已處理
+> - Next.js 只需 HTTP 呼叫 `http://qcc-browserless:3000/pdf`，保持主程式輕量
 
 ### 5.5 未來遷移路徑
 
@@ -1551,6 +1627,7 @@ networks:
   "upstream_snapshot": {
     "step4_current_rate": "number — 快照步驟四現狀值（標記完成時凍結）",
     "step4_vital_few": ["string"],
+    "data_hash": "string — 上游核心數據的 MD5，用於比對是否實質變更",
     "snapshot_at": "timestamp"
   },
   "reason": "string — 目標設定理由（含計算過程）"
@@ -1682,6 +1759,7 @@ networks:
     "step4_current_rate": "number — 快照步驟四現狀值",
     "step4_categories": ["object — 快照步驟四分類統計"],
     "step5_target_value": "number — 快照步驟五目標值",
+    "data_hash": "string — 上游核心數據的 MD5",
     "snapshot_at": "timestamp"
   },
   "chart_config": {
@@ -1950,7 +2028,7 @@ networks:
 
 - 輔導紀錄 CRUD + 建議追蹤（新增時觸發通知）
 - 待討論事項功能
-- PDF 報告匯出（Puppeteer HTML→PDF，含繁體中文與 ECharts 圖表）
+- PDF 報告匯出（Browserless 容器 HTML→PDF，含繁體中文與 ECharts 圖表）
 - 輔導準備摘要匯出
 - 管理員全院進度總覽
 
@@ -2035,9 +2113,13 @@ VLLM_BASE_URL=http://localhost:8000        # vllm 模式用
 PII_FILTER_ENABLED=true                    # 是否啟用個資遮蔽（強烈建議開啟）
 PII_MEDICAL_RECORD_PATTERN=               # 自訂病歷號正則（空白時使用預設）
 
+# ── PDF 匯出 ──
+BROWSERLESS_URL=http://qcc-browserless:3000  # Browserless 容器位址
+
 # ── 檔案上傳 ──
 UPLOAD_DIR=/app/uploads
 MAX_FILE_SIZE_MB=10
+CSV_MAX_ROWS=50000                           # CSV 行數上限
 
 # ── 應用 ──
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -2084,6 +2166,6 @@ NODE_ENV=development
 | 方式 | 用途 | 實作 |
 |------|------|------|
 | PNG 下載 | 同仁單獨下載圖表 | `echarts.getDataURL()` |
-| PDF 嵌入 | 報告匯出時嵌入 | Puppeteer 渲染含圖表的 HTML 頁面 → PDF |
+| PDF 嵌入 | 報告匯出時嵌入 | Browserless 容器渲染含圖表的 HTML 頁面 → PDF |
 | JSON 數據 | 儲存於 Steps.data | 圖表可從 JSON 重新渲染 |
 | 設定保存 | 同仁自訂的圖表設定 | 存入 `Steps.data.chart_config`，下次載入時套用 |

@@ -24,11 +24,11 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 - **Database**: PostgreSQL 16 (Docker) — pg_trgm + 全文搜尋（知識庫用）
 - **ORM**: Prisma (schema-first, 自動 migration, TypeScript 型別生成)
 - **AI**: LLM Adapter 抽象層（預設 Claude API，可切換 Ollama/vLLM 地端模型）
-- **PII Filter**: 本地端個資遮蔽過濾器（送 LLM 前自動攔截，詳見 §5.1.2）
+- **PII Filter**: 白名單欄位過濾（CSV 整欄丟棄）+ 固定格式攔截（身分證/病歷號 regex），詳見 §5.1.2
 - **Charts**: ECharts (柏拉圖、魚骨圖、甘特圖、雷達圖、趨勢圖、熱力圖)
 - **File Upload**: 本地 /uploads 目錄 (Docker volume 掛載)
-- **Export**: Puppeteer HTML→PDF（含繁體中文 + ECharts 圖表）, pptxgenjs (PPT)
-- **Deployment**: Docker Compose (Next.js + PostgreSQL + Nginx 反向代理)
+- **Export**: Browserless/chrome 獨立容器 HTML→PDF（自帶中文字型）, pptxgenjs (PPT)
+- **Deployment**: Docker Compose (Next.js + PostgreSQL + Nginx + Browserless)
 
 ## 專案結構
 
@@ -85,13 +85,14 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 │   │   ├── prisma.ts          # Prisma Client 單例
 │   │   ├── auth.ts            # 認證與授權
 │   │   ├── llm-adapter.ts     # LLM 抽象層（Claude/Ollama/vLLM 切換）
-│   │   ├── pii-filter.ts      # PII/PHI 個資遮蔽過濾器
-│   │   ├── csv-parser.ts      # CSV/Excel 解析（streaming, 50K 行上限）
+│   │   ├── pii-filter.ts      # PII/PHI 固定格式攔截（身分證/病歷號 regex）
+│   │   ├── csv-sanitizer.ts   # CSV 白名單欄位過濾（個資欄位整欄丟棄）
+│   │   ├── csv-parser.ts      # CSV/Excel stream 解析（fast-csv pipeline, 50K 行上限）
 │   │   ├── chart-data.ts      # 圖表數據計算
 │   │   ├── step-schemas.ts    # Step 1~10 Zod schema + TypeScript 型別
-│   │   ├── step-linking.ts    # 步驟間柔性數據連動 + upstream_snapshot
+│   │   ├── step-linking.ts    # 步驟間柔性數據連動 + upstream_snapshot + hash 比對
 │   │   ├── knowledge.ts       # 知識庫搜尋邏輯
-│   │   └── export.ts          # PDF (Puppeteer) / PPT 匯出
+│   │   └── export.ts          # PDF (呼叫 Browserless API) / PPT 匯出
 │   └── types/
 │       └── index.ts           # TypeScript 型別定義
 ├── prisma/
@@ -100,7 +101,7 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 ├── docker-compose.yml         # 正式環境 (app + db + nginx)
 ├── docker-compose.dev.yml     # 開發環境 (含 hot reload)
 ├── Dockerfile                 # Next.js 多階段建置
-├── nginx/default.conf         # Nginx 反向代理（含 client_max_body_size 20m）
+├── nginx/default.conf         # Nginx 反向代理（client_max_body_size 20m）
 └── .env.example               # 環境變數範本
 ```
 
@@ -152,17 +153,17 @@ QCC Helper 協助醫院同仁執行品管圈（Quality Control Circle）活動�
 - 全介面使用**繁體中文**，程式碼中的變數名與註解使用英文
 
 ### 資安原則（重要）
-- **PII/PHI 遮蔽**：所有送往 LLM 的文本必須先經過 `pii-filter.ts`，API middleware 自動套用
+- **CSV 白名單過濾**：`csv-sanitizer.ts` 只提取統計欄位（時間、類別、次數），其餘欄位（備註、姓名）**整欄丟棄**，物理斷絕個資外流
+- **固定格式攔截**：`pii-filter.ts` 攔截身分證字號、病歷號等有固定格式的個資，**不嘗試用 regex 辨識中文姓名**（不可靠）
 - 不儲存任何病患個資（PII），僅處理匿名化的統計數據
-- CSV 上傳在前端預覽階段即掃描疑似個資欄位（姓名、ID、病歷號），主動提醒同仁
-- Claude API 呼叫時不要傳送任何可識別個人的資訊
-- CSV 只傳聚合後的統計摘要給 AI，不傳原始逐筆數據
+- AI 只收聚合後的統計摘要，**絕對不傳原始逐筆數據**
+- CSV 解析**必須用 stream pipeline**（`fast-csv` + `pipeline`），禁止一次載入全檔（會阻塞 Event Loop）
 
 ### UX 彈性原則
 - 步驟完成度僅為「建議欄位 X/Y 已填」提示，**不阻擋**標記完成
 - 步驟間數據連動為柔性帶入：有上游數據時自動填入，無則留空
 - 同仁手動修改過的值**不會被自動覆蓋**
-- 下游步驟完成時自動快照上游數值（upstream_snapshot），防止回頭修改造成數據斷裂
+- 下游步驟完成時自動快照上游數值（upstream_snapshot + data_hash），只有核心數據變更才觸發提示（改錯字不提示）
 - AI 草稿一律標記為「AI 草稿」，同仁可一鍵採用、修改或忽略
 - AI streaming 填入期間暫停自動儲存，完成後再觸發一次完整儲存
 
@@ -207,6 +208,6 @@ docker exec -it qcc-db psql -U qcc -d qcc_helper  # 進入資料庫 CLI
 ## 注意事項
 
 - 此為醫院內部工具，注意資料安全，不應外洩任何資料到不可控的第三方
-- 上傳的 CSV/Excel 可能包含敏感統計數據，分析完成後僅保留聚合結果
-- CSV 單檔上限 50,000 行，超過時提示同仁先篩選；AI 只收聚合統計，不收原始數據
+- 上傳的 CSV/Excel 經白名單過濾後僅保留統計欄位，其餘整欄丟棄
+- CSV 單檔上限 50,000 行，必須用 stream pipeline 逐行解析，禁止一次載入全檔
 - 本專案與 CQI365 Hospital 共用同一台 Docker Host 和 PostgreSQL（不同 database），詳見 requirements.md §5.3
