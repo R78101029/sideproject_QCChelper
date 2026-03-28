@@ -1,0 +1,66 @@
+services:
+  qcc-app:
+    build: .
+    container_name: qcc-app
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://qcc:qcc_password@qcc-db:5432/qcc_helper
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      qcc-db:
+        condition: service_healthy
+    networks:
+      - qcc-net
+
+  qcc-db:
+    image: postgres:16-alpine
+    container_name: qcc-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qcc
+      POSTGRES_PASSWORD: qcc_password
+      POSTGRES_DB: qcc_helper
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qcc -d qcc_helper"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - qcc-net
+
+  qcc-nginx:
+    image: nginx:alpine
+    container_name: qcc-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - qcc-app
+    networks:
+      - qcc-net
+
+  qcc-browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: qcc-browserless
+    restart: unless-stopped
+    environment:
+      - CONCURRENT=2
+      - QUEUED=5
+    networks:
+      - qcc-net
+
+volumes:
+  pgdata:
+  uploads:
+
+networks:
+  qcc-net:
+    driver: bridge

@@ -1,0 +1,13 @@
+# QCC Helper — Dev Docker Compose
+# PostgreSQL 由 shared-infra 提供（localhost:5432），這裡只啟開發用的 Browserless
+
+services:
+  qcc-browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: qcc-browserless-dev
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - CONCURRENT=2
+      - QUEUED=5

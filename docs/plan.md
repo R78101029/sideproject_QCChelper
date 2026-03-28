@@ -1,7 +1,10 @@
-# QCC Helper — 開發計畫（Agent 並行版）
+# QCC Helper — 開發計畫（iQCC 整合版）
 
 > 本計畫利用多個 AI Agent 並行開發，大幅壓縮時程。
 > 完整需求規格見 `requirements.md`，本文件聚焦：**誰做什麼、同時做什麼、依賴關係。**
+>
+> **2026-03-28 更新：整合 iQCC（智慧品質圈）研究計畫。**
+> iQCC 研究文件見 `docs/` 目錄下三份 .md 檔。
 
 ---
 
@@ -9,15 +12,75 @@
 
 | 階段 | 目標 | 預估時程 |
 |------|------|---------|
-| **Phase 1 — MVP** | 一個圈隊能走完十步驟、產出 PDF 報告 | 4~5 週 |
-| **Phase 2 — 強化** | AI 主動幫填、互動圖表、輔導機制、資安強化 | 3~4 週 |
+| **Phase 1 — MVP** | 一個圈隊能走完十步驟、產出 PDF 報告（含 iQCC 相容架構） | 4~5 週 |
+| **Phase 2 — 強化 + iQCC** | AI 主動幫填、互動圖表、**iQCC 引導式 AI 工作流**、輔導機制、資安強化、研究數據匯出 | 4~5 週 |
 | **Phase 3 — 醫院治理** | 知識庫、評鑑報告、趨勢分析、持續改善追蹤 | 3~4 週 |
+
+---
+
+## iQCC 整合策略
+
+### 核心決策（2026-03-28 確認）
+
+1. **步驟結構**：維持台灣 10 步驟標準（不改為 iQCC 8 步驟）
+2. **AI-QCF 角色**：系統本身自動化 AI-QCF，不需人類促進員
+3. **對照組**：傳統 QCC 對照組使用人工流程，不進系統
+4. **研究問卷**：外部工具（Google Forms 等），系統只匯出研究數據
+5. **對策壓力測試**：作為 Step 7 子流程，不新增步驟
+6. **Phase 分配**：iQCC 進階功能放 Phase 2，Phase 1 預留相容架構
+
+### iQCC 功能 × 10 步驟映射
+
+| 步驟 | 現有 MVP 功能 | iQCC 新增能力（Phase 2） |
+|---|---|---|
+| 1 組圈 | 圈員名單+圈徽 | — |
+| 2 主題選定 | 評價矩陣 | AI 背景掃描、重要性摘要 |
+| 3 活動計畫 | 時程表格 | AI 自動建議甘特圖草案 |
+| 4 現況把握 | CSV→柏拉圖 | AI 現況分析整合報告（數據敘事+主題歸納） |
+| 5 目標設定 | 帶入 step4 | AI 外部對標（文獻參考區間）+ 目標分解 |
+| 6 解析 | 樹狀列表 | **三階段因果探勘法**（柏拉圖→5-Why 互動→因果驗證） |
+| 7 對策擬定 | 5W1H+評價矩陣 | AI 對策草案生成 + **對策壓力測試迴圈**（提案→對抗審查→修正） |
+| 8 對策實施 | 進度+照片 | — |
+| 9 效果確認 | 前後柏拉圖+雷達 | AI 成效比較報告自動生成 |
+| 10 標準化 | SOP+檢討 | AI 一文多用（SOP/查核表/FAQ 批量生成） |
+
+### AI 互動模式演進
+
+```
+Phase 1（MVP）：
+  ChatMode = 'freeform'     ← 每步驟一個 AI 聊天側邊欄
+
+Phase 2（iQCC）：
+  ChatMode =
+    | 'freeform'            ← 自由對話（保留）
+    | 'guided_analysis'     ← 三階段因果探勘（Step 6）
+    | 'pressure_test'       ← 對策壓力測試迴圈（Step 7）
+    | 'report_generation'   ← 報告自動生成（Step 4, 9, 10）
+    | 'background_scan'     ← 背景掃描 / 外部對標（Step 2, 5）
+```
+
+### Phase 1 必須預留的相容架構
+
+以下欄位在 Phase 1 就要建好（即使 Phase 1 不使用）：
+
+```prisma
+model ChatHistory {
+  // ...現有欄位
+  mode       String   @default("freeform")  // Phase 2: guided_analysis 等
+  metadata   Json?                          // Phase 2: 工作流狀態、輪次紀錄
+}
+```
+
+Step 6/7 的 Zod schema 預留 optional 擴展欄位：
+- Step6Data: `causal_verification?: CausalVerification[]`
+- Step7Data: `pressure_test?: PressureTestRound[]`
 
 ---
 
 # Phase 1 — MVP
 
 > **目標：一個圈隊能從步驟一走到步驟十，產出 PDF 報告交差。**
+> **架構目標：Phase 2 iQCC 功能可無痛接入。**
 
 ## MVP 取捨
 
@@ -25,13 +88,15 @@
 |----|------------------|
 | 十步驟表單能填能存 | 精簡/完整模式切換 |
 | CSV 上傳 → 柏拉圖 | 魚骨圖互動編輯、甘特圖 |
-| AI 對話（streaming） | AI 幫我填（草稿填入） |
+| AI 對話（streaming, freeform） | iQCC 引導式 AI 工作流 |
 | PDF 報告匯出 | PPT / 海報匯出 |
 | 基本登入 + 角色 | 通知系統 |
 | 管理員看進度 | 評鑑報告、知識庫、趨勢分析 |
 | 自動儲存 | upstream_snapshot + hash 比對 |
 | UI 個資提醒文字 | 三層 PII 防護架構 |
 | 直接呼叫 Claude API | LLM Adapter 抽象層 |
+| ChatHistory.mode 欄位（預留） | 引導式 AI 工作流實作 |
+| Step6/7 schema 預留 iQCC 欄位 | 三階段因果探勘、壓力測試實作 |
 
 ## Agent 團隊配置
 
@@ -99,7 +164,7 @@ Agent-F 交付物：
 │   ├── User, UserCircle, Project (+KPI 欄位), Member
 │   ├── Step (+view_mode, +ai_draft_fields), Upload, Reference
 │   ├── CoachingRecord, CoachingSuggestion, DiscussionItem
-│   ├── ChatHistory, StepChangeLog, ProjectTemplate, SystemSetting
+│   ├── ChatHistory (+mode, +metadata), StepChangeLog, ProjectTemplate, SystemSetting
 │   ├── ProjectBenefit, FollowUp, Notification
 │   └── 執行 prisma migrate dev 確認 schema 正確
 ├── Docker Compose（app + db + nginx）
@@ -113,7 +178,9 @@ Agent-F 交付物：
 │   ├── Table, Modal, Toast/Alert
 │   └── SaveIndicator（已儲存/儲存中/未儲存）
 ├── types/steps.ts — Step1Data ~ Step10Data TypeScript 介面
+│   └── ★ Step6Data 預留 causal_verification, Step7Data 預留 pressure_test
 ├── lib/step-schemas.ts — Zod schema（runtime 驗證）
+│   └── ★ 對應 iQCC 擴展欄位設為 optional
 ├── lib/prisma.ts — Prisma Client 單例
 ├── .env.example
 ├── prisma/seed.ts — 預設 sys_admin 帳號 + demo 資料
@@ -212,10 +279,12 @@ Week 2 交付（步驟 6~10）：
 │   ├── 5M1E 樹狀列表（六個大分類 + 新增小要因）
 │   ├── 真因勾選
 │   └── 數據結構 = requirements.md main_categories JSON
+│   └── ★ UI 預留「AI 因果探勘」區塊位置（Phase 2 啟用）
 ├── Step7Form.tsx — 對策擬定
 │   ├── 5W1H 對策表單（動態新增對策卡片）
 │   ├── 評價矩陣（圈長代填版）
-│   └── 採行/不採行分類
+│   ├── 採行/不採行分類
+│   └── ★ UI 預留「壓力測試」tab 位置（Phase 2 啟用）
 ├── Step8Form.tsx — 對策實施
 │   └── 實施進度表格（狀態、前後描述、照片上傳）
 ├── Step9Form.tsx — 效果確認
@@ -268,22 +337,25 @@ Week 2 交付（步驟 6~10）：
 #### Agent-I：AI 對話整合（1.5 週，可提前完成）
 
 > 核心依賴只有 Prisma schema（ChatHistory 表）和基本 Layout。
+> ★ Phase 1 只實作 freeform 模式，但 API 架構要支援 mode 切換。
 
 ```
 交付物：
 ├── lib/claude.ts
 │   ├── 封裝 @anthropic-ai/sdk
-│   ├── streamChat(messages, systemPrompt) → ReadableStream
+│   ├── streamChat(messages, systemPrompt, mode?) → ReadableStream
 │   └── 不做 adapter，直接呼叫 Claude
 ├── POST /api/chat
-│   ├── 接收 { projectId, stepNumber, message }
+│   ├── 接收 { projectId, stepNumber, message, mode? }
+│   │   └── ★ mode 參數預留（Phase 1 只接受 "freeform"，Phase 2 擴展）
 │   ├── 組裝 system prompt（動態注入專案數據）
 │   ├── streaming response（text/event-stream）
-│   └── 完成後儲存 ChatHistory
+│   └── 完成後儲存 ChatHistory（含 mode + metadata）
 ├── GET /api/projects/:id/chat/history
-│   └── 依 stepNumber 分組回傳
+│   └── 依 stepNumber + mode 分組回傳
 ├── 10 套 system prompt（每步驟一套）
 │   ├── 角色定義 + 步驟目的 + 關鍵要點 + 常見錯誤
+│   ├── ★ 角色統一為「AI 品管促進員」語氣（為 Phase 2 iQCC 鋪路）
 │   ├── 步驟 5 注入步驟 4 的 current_rate, vital_few
 │   ├── 步驟 7 注入步驟 6 的 confirmed_root_causes
 │   └── 步驟 9 注入步驟 4, 5 數據
@@ -293,6 +365,7 @@ Week 2 交付（步驟 6~10）：
 │   ├── streaming 逐字顯示
 │   ├── 輸入框 + 送出按鈕
 │   ├── 輸入框上方灰色提醒：「請勿輸入病患個資」
+│   ├── ★ mode 切換 UI 預留（Phase 1 隱藏，Phase 2 啟用）
 │   └── 歷史紀錄載入
 └── 步驟頁面整合（AgentChat 嵌入步驟表單右側）
 ```
@@ -361,6 +434,7 @@ Week 2 交付（步驟 6~10）：
         ──────────── ──────────── ──────────── ──────────── ────────
 Agent-F ████████████
         地基+Spike
+        +iQCC 相容欄位
 
 Agent-A              ████████████ ████████████
                      Auth+Project  Upload+Analyze
@@ -377,6 +451,7 @@ Agent-C              ████████████
 Agent-I              ████████████ ██████
                      Claude+Chat   Prompt
                      streaming     整合
+                     +mode 預留
 
 Agent-E                                        ████████████
                                                Browserless
@@ -396,14 +471,16 @@ Agent-D                                        ███████████
 
 ---
 
-# Phase 2 — 強化（MVP 上線後 3~4 週）
+# Phase 2 — 強化 + iQCC（MVP 上線後 4~5 週）
 
-> **目標：讓系統從「能用」變成「好用」。** 根據 MVP 使用回饋決定優先順序。
+> **目標：讓系統從「能用」變成「好用」，同時實現 iQCC 自動化 AI-QCF 功能。**
+> **研究支持：系統可作為 iQCC 實證研究的實驗組工具。**
 
 ## Phase 2 功能範圍
 
 | 功能群 | 內容 | 價值 |
 |--------|------|------|
+| **★ iQCC 引導式 AI** | 三階段因果探勘、對策壓力測試迴圈、AI 報告生成、背景掃描 | 系統自動扮演 AI-QCF |
 | **AI 強化** | AI 幫我填（草稿自動填入）、AI 草稿標記/確認機制 | 大幅降低同仁填寫負擔 |
 | **互動圖表** | 魚骨圖 ECharts 互動編輯器、甘特圖 | 報告視覺品質提升 |
 | **評價矩陣完整版** | 每位圈員各別打分 → 自動加總 | 評審要求 |
@@ -411,14 +488,89 @@ Agent-D                                        ███████████
 | **通知** | Notification 表 + Header 小紅點 | 輔導建議通知 |
 | **資安強化** | CSV 白名單欄位過濾、固定格式 PII 攔截 | 合規要求 |
 | **UX 優化** | 精簡/完整模式切換、圖表設定持久化 | 使用體驗提升 |
+| **★ 研究數據匯出** | 時間戳匯出、AI 互動紀錄、匿名報告匯出 | iQCC 研究用 |
 
 ## Phase 2 Agent 並行規劃
 
 ```
+Agent-QCF   iQCC AI-QCF    引導式 AI 工作流：因果探勘 + 壓力測試 + 報告生成
 Agent-AI    AI 強化         AI 幫我填 + 草稿標記 + 健康度建議
 Agent-VIZ   互動圖表        魚骨圖編輯器 + 甘特圖 + chart_config
-Agent-COA   輔導機制        輔導紀錄 + 通知 + 月會匯出
-Agent-SEC   資安 + UX      PII 過濾 + 精簡模式 + 評價矩陣完整版
+Agent-COA   輔導 + 資安     輔導紀錄 + 通知 + PII 過濾 + 精簡模式 + 研究匯出
+```
+
+### ★ Agent-QCF：iQCC 自動化 AI-QCF（2.5 週）
+
+> **最重要的 Phase 2 新增 Agent。實現系統自動扮演 AI 品管促進員。**
+
+```
+Week 1 — 三階段因果探勘法（Step 6 引導式 AI）：
+├── lib/iqcc/guided-analysis.ts
+│   ├── Stage 1: AI 輔助柏拉圖分析
+│   │   └── 自動從 Step 4 數據找出「關鍵少數」，生成分析敘事
+│   ├── Stage 2: AI 5-Why 互動追問
+│   │   ├── AI 扮演「5-Why 大師」角色
+│   │   ├── 多輪對話：團隊提出原因 → AI 追問「為什麼？」→ 團隊回答 → 繼續追問
+│   │   ├── 每輪自動記錄到 ChatHistory (mode='guided_analysis')
+│   │   └── AI 在追問 3-5 層後主動建議「是否已到根本原因」
+│   └── Stage 3: AI 因果假設驗證
+│       ├── AI 回到 Step 4 的原始數據中搜尋支持/反駁證據
+│       ├── 生成「因果關係驗證表」（每個根因 × 證據 × 支持度 0-3 分）
+│       └── 結果存入 Step6Data.causal_verification
+├── POST /api/chat (mode='guided_analysis')
+│   ├── 根據 stage 動態切換 system prompt
+│   └── 自動注入 Step 4 數據作為上下文
+├── Step6Form 更新
+│   ├── 新增「AI 因果探勘」tab
+│   ├── 三階段進度指示器（1/3 → 2/3 → 3/3）
+│   ├── 因果驗證表格 UI（證據、支持度）
+│   └── 「將 AI 分析結果匯入主表單」按鈕
+└── 3 套 guided_analysis system prompt
+    ├── stage1_pareto_analysis.ts
+    ├── stage2_five_why_master.ts
+    └── stage3_causal_verification.ts
+
+Week 2 — 對策壓力測試迴圈（Step 7 引導式 AI）：
+├── lib/iqcc/pressure-test.ts
+│   ├── 迴圈流程：提案(Propose) → 驗證(Verify) → 修正(Correct)
+│   ├── Verify 階段 AI 角色切換：
+│   │   ├── 「IMO 級驗證官」— 找嚴重錯誤與細節缺陷
+│   │   ├── 「護理師視角」— 臨床執行可行性
+│   │   ├── 「法務視角」— 合規與責任風險
+│   │   └── 「病患/家屬視角」— 使用者體驗與接受度
+│   ├── 每輪生成結構化「風險與缺陷報告」
+│   ├── 團隊決定：修正方案（繼續迴圈）或 關閉迴圈（方案定案）
+│   └── 結果存入 Step7Data.pressure_test[]
+├── POST /api/chat (mode='pressure_test')
+│   ├── 根據迴圈輪次 + 角色動態組裝 prompt
+│   └── 自動注入 Step 6 根因 + Step 7 對策內容
+├── Step7Form 更新
+│   ├── 新增「壓力測試」tab
+│   ├── 迴圈輪次紀錄列表（Round 1, 2, 3...）
+│   ├── 每輪：AI 風險報告 + 團隊修正紀錄
+│   └── 「關閉迴圈，確認定案」按鈕
+└── 4+ 套 pressure_test system prompt
+    ├── verifier_imo.ts
+    ├── verifier_nurse.ts
+    ├── verifier_legal.ts
+    └── verifier_patient.ts
+
+Week 2.5 — AI 報告生成 + 背景掃描：
+├── lib/iqcc/report-generation.ts
+│   ├── Step 4: 現況分析整合報告（數據敘事 + 主題歸納）
+│   ├── Step 9: 成效比較報告（前後對比 + 改善率 + 摘要描述）
+│   └── Step 10: 一文多用（SOP + 查核表 + FAQ 批量生成）
+├── lib/iqcc/background-scan.ts
+│   ├── Step 2: 主題背景掃描（重要性、常見挑戰）
+│   └── Step 5: 外部對標（文獻參考區間 + 目標分解建議）
+├── POST /api/chat (mode='report_generation' | 'background_scan')
+├── 對應步驟表單 UI 更新
+│   ├── Step 4: 「AI 生成現況報告」按鈕
+│   ├── Step 9: 「AI 生成成效報告」按鈕
+│   ├── Step 10: 「AI 批量生成文件」按鈕（選擇要生成的類型）
+│   ├── Step 2: 「AI 背景掃描」按鈕
+│   └── Step 5: 「AI 外部對標」按鈕
+└── 5 套 report/scan system prompt
 ```
 
 ### Agent-AI：AI 強化（2 週）
@@ -481,10 +633,10 @@ Week 2：
     └── 向下相容圈長代填版數據
 ```
 
-### Agent-COA：輔導機制（1.5 週）
+### Agent-COA：輔導 + 資安 + 研究匯出（2.5 週）
 
 ```
-交付物：
+Week 1 — 輔導機制：
 ├── 輔導紀錄 API
 │   ├── GET/POST /api/projects/:id/coaching
 │   ├── PUT /api/coaching/:cid
@@ -504,12 +656,8 @@ Week 2：
 └── 管理員月會匯出
     ├── POST /api/admin/export/monthly
     └── 全院進度總表 PDF/Excel
-```
 
-### Agent-SEC：資安 + UX（1.5 週）
-
-```
-交付物：
+Week 2 — 資安 + UX：
 ├── lib/csv-sanitizer.ts — CSV 白名單欄位過濾
 │   ├── 掃描欄位名稱 → 標記疑似個資欄位
 │   ├── 只提取統計欄位（時間、類別、次數）
@@ -527,13 +675,34 @@ Week 2：
 └── UI 提醒強化
     ├── CSV 上傳頁「安全提醒」卡片
     └── AI 輸入框常駐提醒文字
+
+Week 2.5 — ★ 研究數據匯出：
+├── GET /api/projects/:id/research-export
+│   ├── 匯出格式：JSON + CSV
+│   ├── 內容：
+│   │   ├── 各步驟 created_at / updated_at（時間戳序列）
+│   │   ├── AI 互動紀錄統計（輪次、token 數、mode 分布）
+│   │   ├── 因果驗證表（Step 6 causal_verification）
+│   │   ├── 壓力測試紀錄（Step 7 pressure_test rounds）
+│   │   └── 步驟完成度序列
+│   ├── 匿名化：移除使用者真名，僅保留角色
+│   └── 可選：匿名化完整報告 PDF（供盲性專家評分）
+├── /admin/research/page.tsx（管理員研究數據頁面）
+│   ├── 選擇專案 → 預覽匯出內容
+│   └── 下載 JSON / CSV / 匿名 PDF
+└── 研究數據 API 權限
+    └── 僅 sys_admin 可存取
 ```
 
 ## Phase 2 時程甘特圖
 
 ```
-        Week 1       Week 2       Week 3       Week 4
-        ──────────── ──────────── ──────────── ────────
+        Week 1       Week 2       Week 3       Week 4       Week 5
+        ──────────── ──────────── ──────────── ──────────── ────────
+Agent-QCF████████████ ████████████ ██████
+         三階段因果    壓力測試      報告生成
+         探勘法        迴圈         背景掃描
+
 Agent-AI ████████████ ████████████
          AI 幫我填     健康度建議
          草稿標記      進場時機
@@ -543,13 +712,9 @@ Agent-VIZ████████████ ███████████�
                       chart_config
                       評價矩陣完整版
 
-Agent-COA████████████ ██████
-         輔導紀錄      通知+匯出
-         建議追蹤
-
-Agent-SEC████████████ ██████
-         CSV 過濾      精簡/完整
-         PII 攔截      模式切換
+Agent-COA████████████ ████████████ ██████
+         輔導紀錄      資安+UX      研究數據
+         通知機制      PII 攔截     匯出 API
 
                                    ████████████
                                    整合測試 +
@@ -557,9 +722,11 @@ Agent-SEC████████████ ██████
 
                                                 ✅ Phase 2
                                                 上線
+                                                （iQCC 研究可啟動）
 ```
 
-**四個 Agent 完全並行，無依賴。** 整合測試在 Week 3 後半進行。
+**Agent-QCF 是 Phase 2 關鍵路徑。** 其他三個 Agent 與 Phase 1 原計畫大致相同。
+**Phase 2 上線後，系統即可作為 iQCC 實證研究的實驗組工具。**
 
 ---
 
@@ -742,8 +909,8 @@ Agent-EXP████████████ ██████
 # 全局時程總覽
 
 ```
-Month 1              Month 2              Month 3
-──────────────────── ──────────────────── ────────────────────
+Month 1              Month 2              Month 3              Month 4
+──────────────────── ──────────────────── ──────────────────── ──────────
 
 Phase 1 — MVP
 ████████████████████ ██████
@@ -752,22 +919,24 @@ Phase 1 — MVP
                       ✅ MVP 上線
                       （同仁開始使用）
 
-                          Phase 2 — 強化
-                          ████████████████████
-                          4 Agent 並行 → 整合
-                                              ↓
-                                          ✅ Phase 2 上線
+                          Phase 2 — 強化 + iQCC
+                          ████████████████████ ██████
+                          5 Agent 並行 → 整合
+                          Agent-QCF 為關鍵新增
+                                                    ↓
+                                                ✅ Phase 2 上線
+                                                （iQCC 研究可啟動）
 
-                                              Phase 3 — 治理
-                                              ████████████████
-                                              4 Agent 並行 →
-                                                           ↓
-Month 4                                                ✅ Phase 3
-────────                                               上線
+                                                    Phase 3 — 治理
+                                                    ████████████████
+                                                    4 Agent 並行 →
+                                                                 ↓
+Month 5                                                      ✅ Phase 3
+────────                                                     上線
 ████████
 整合 + 上線
 
-總計：約 12~14 週（3~3.5 個月）
+總計：約 14~17 週（3.5~4.5 個月）
 ```
 
 ## 各階段 Agent 數量
@@ -777,5 +946,36 @@ Month 4                                                ✅ Phase 3
 | Phase 1 Sprint 0 | 1 | 地基必須先完成 |
 | Phase 1 Sprint 1~3 | **4** | Agent-A, S, C, I 同時 |
 | Phase 1 Sprint 4 | 2 | Agent-E, D 同時（等 S+C 完成） |
-| Phase 2 | **4** | AI, VIZ, COA, SEC 無依賴 |
+| Phase 2 | **4** | QCF, AI, VIZ, COA 同時（QCF 為關鍵路徑） |
 | Phase 3 | **4** | KB, RPT, INT, EXP 無依賴 |
+
+---
+
+# iQCC 研究時程對照
+
+> 以下為 iQCC 實證研究計畫與系統開發的時程對照。
+> 研究計畫詳見 `docs/導入智慧品質圈 (iQCC) 框架...混合方法實證研究計畫.md`
+
+```
+系統開發                              iQCC 研究
+──────────────────────────────────── ────────────────────────
+Month 1~2: Phase 1 MVP 開發
+Month 2~4: Phase 2 開發（含 iQCC）
+                                     Month 4: 研究準備期
+                                       - 團隊招募、配對分派
+                                       - IRB 審查
+                                       - AI-QCF = 系統本身（不需人員訓練）
+Month 4~5: Phase 3 開發
+                                     Month 5~7: 規劃分析期
+                                       - 實驗組用 QCChelper（Phase 2 功能）
+                                       - 對照組用傳統手動流程
+                                       - [前測] 期中報告 → 專家評分
+                                     Month 8~10: 對策實施期
+                                     Month 11~12: 效果確認 + 結案
+                                       - [後測] 最終報告 → 專家評分
+                                       - 問卷施測（外部工具）
+                                       - 質性訪談
+                                       - 研究數據匯出（系統 API）
+```
+
+**關鍵：Phase 2 必須在研究啟動前完成。** Phase 3 可與研究並行開發。

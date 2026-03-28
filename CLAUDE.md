@@ -1,7 +1,10 @@
 # QCC Helper — Claude 開發記憶
 
 > 本檔案是 Claude Agent 的**專案記憶**。每次 session 啟動時讀取此檔，快速掌握專案全貌。
-> 最後更新：2026-03-18
+> 最後更新：2026-03-28
+>
+> **重要更新：已整合 iQCC（智慧品質圈）研究計畫。**
+> 系統除了日常 QCC 工具外，還將作為 iQCC 實證研究的實驗組工具。
 
 ---
 
@@ -14,12 +17,15 @@
 | **下一步** | Sprint 0 — 地基建設 |
 | **程式碼** | 零（僅文件，尚無 src/、package.json、prisma/ 等） |
 
-### 已存在的檔案（僅 3 個）
+### 已存在的檔案
 
 ```
-CLAUDE.md                     ← 本檔案（Agent 記憶）
-docs/requirements.md          ← 完整需求規格（2171 行，§1~§10）
-docs/plan.md                  ← 三階段並行開發計畫
+CLAUDE.md                                ← 本檔案（Agent 記憶）
+docs/requirements.md                     ← 完整需求規格（2171 行，§1~§10）
+docs/plan.md                             ← 三階段並行開發計畫（含 iQCC 整合）
+docs/iQCC 核心實踐框架...操作指南.md       ← iQCC 8 步驟操作定義（研究用）
+docs/iQCC 框架深入研究報告.md              ← 文獻為本可行性分析（82 篇引用）
+docs/導入智慧品質圈...實證研究計畫.md       ← 準實驗研究計畫書（v2.0）
 ```
 
 ### 尚不存在的檔案（需在 Sprint 0 建立）
@@ -40,6 +46,8 @@ src/ (所有程式碼)
 
 **設計理念：系統是來幫忙的，不是來考試的。**
 
+**iQCC 定位：系統本身就是自動化的 AI 品管促進員（AI-QCF）。** Phase 2 實作引導式 AI 工作流（三階段因果探勘、對策壓力測試迴圈等），讓系統直接扮演 iQCC 框架中的 AI-QCF 角色，不需額外的人類促進員。
+
 ---
 
 ## 關鍵文件索引
@@ -52,7 +60,10 @@ src/ (所有程式碼)
 | `docs/requirements.md` §8 | API Routes 完整定義 | 寫後端 API 時 |
 | `docs/requirements.md` §10.3 | 環境變數清單 | 寫 .env.example 時 |
 | `docs/requirements.md` §10.4 | AI system prompt 設計原則 | 寫 AI 對話 prompt 時 |
-| `docs/plan.md` | Agent 並行開發計畫 + 三階段規劃 | 規劃工作分配時 |
+| `docs/plan.md` | Agent 並行開發計畫 + 三階段規劃（含 iQCC） | 規劃工作分配時 |
+| `docs/iQCC 核心實踐框架...` | iQCC 8 步驟 × AI-QCF 操作定義 | 設計引導式 AI 工作流時（Phase 2） |
+| `docs/iQCC 框架深入研究報告...` | 四大效益假設 + 文獻支持 | 理解 iQCC 理論基礎時 |
+| `docs/導入智慧品質圈...` | 準實驗研究計畫（測量指標、時程） | 設計研究數據匯出功能時（Phase 2） |
 
 ---
 
@@ -86,7 +97,7 @@ src/ (所有程式碼)
 | **Member** | 圈員名單 | role: `leader` / `member` / `advisor` |
 | **Step** | 步驟資料 | `data` JSONB（§6.3）+ `ai_draft_fields` JSONB + `view_mode` + `upstream_snapshot` |
 | **Upload** | 上傳檔案 | purpose: `data` / `attachment` / `alternative` |
-| **ChatHistory** | AI 對話紀錄 | 綁定 project + step_number |
+| **ChatHistory** | AI 對話紀錄 | 綁定 project + step_number + **mode**（Phase 1: freeform, Phase 2: guided_analysis/pressure_test/report_generation/background_scan）+ **metadata** Json |
 
 ### 輔助表
 
@@ -148,6 +159,8 @@ src/ (所有程式碼)
 - ~~精簡/完整模式切換~~ → Phase 2
 - ~~通知系統~~ → Phase 2
 - ~~CSV 白名單過濾 + PII 攔截~~ → Phase 2（MVP 只加 UI 文字提醒）
+- ~~iQCC 引導式 AI 工作流~~ → Phase 2（三階段因果探勘、對策壓力測試、AI 報告生成）
+- ~~研究數據匯出~~ → Phase 2
 - ~~LLM Adapter 抽象層~~ → Phase 3（MVP 直接呼叫 Claude）
 - ~~upstream_snapshot + hash 比對~~ → Phase 3
 - ~~知識庫、評鑑報告、趨勢分析~~ → Phase 3
@@ -156,17 +169,78 @@ src/ (所有程式碼)
 
 ---
 
-## Agent 團隊與分工（Phase 1）
+## iQCC 整合設計（2026-03-28 確認）
+
+### 核心決策
+
+| # | 決策 | 理由 |
+| -- | ---- | ---- |
+| 1 | 維持台灣 10 步驟（不改 iQCC 8 步驟） | 台灣醫院評審標準 |
+| 2 | 系統自動化 AI-QCF，不需人類促進員 | 降低人力依賴 |
+| 3 | 對照組用人工流程，不進系統 | 對照組的意義是不用工具 |
+| 4 | 研究問卷用外部工具，系統只匯出數據 | 不是每次都在做研究 |
+| 5 | 對策壓力測試放 Step 7 子流程 | 維持 10 步驟一致性 |
+| 6 | iQCC 進階功能放 Phase 2，Phase 1 預留架構 | 先確保基本功能可用 |
+
+### Phase 1 必須預留的 iQCC 相容欄位
+
+```
+ChatHistory:
+  mode       String  @default("freeform")   ← Phase 2 擴展為 guided_analysis 等
+  metadata   Json?                          ← Phase 2 工作流狀態
+
+Step6Data (Zod):
+  causal_verification?  CausalVerification[] ← Phase 2 因果驗證表
+
+Step7Data (Zod):
+  pressure_test?        PressureTestRound[]  ← Phase 2 壓力測試紀錄
+```
+
+### iQCC 功能 × 10 步驟映射（Phase 2 實作）
+
+| 步驟 | iQCC 新增能力 | AI 互動模式 |
+|---|---|---|
+| 2 主題選定 | AI 背景掃描 | `background_scan` |
+| 4 現況把握 | AI 現況分析整合報告 | `report_generation` |
+| 5 目標設定 | AI 外部對標 | `background_scan` |
+| 6 解析 | **三階段因果探勘法** | `guided_analysis` |
+| 7 對策擬定 | **對策壓力測試迴圈** | `pressure_test` |
+| 9 效果確認 | AI 成效比較報告 | `report_generation` |
+| 10 標準化 | AI 一文多用 | `report_generation` |
+
+### 三階段因果探勘法（Step 6，Phase 2 核心）
+
+```
+Stage 1: AI 輔助柏拉圖分析 → 從 Step 4 數據找「關鍵少數」
+Stage 2: AI 5-Why 互動追問 → AI 扮演「5-Why 大師」，多輪對話直到根因
+Stage 3: AI 因果假設驗證 → 回到 Step 4 數據找支持/反駁證據，生成驗證表
+```
+
+### 對策壓力測試迴圈（Step 7 子流程，Phase 2 核心）
+
+```
+迴圈：提案(Propose) → AI 對抗審查(Verify) → 團隊修正(Correct) → 重複直到定案
+AI 審查角色切換：驗證官、護理師視角、法務視角、病患視角
+每輪產出：結構化風險與缺陷報告
+```
+
+---
+
+## Agent 團隊與分工
+
+### Phase 1（MVP）
 
 ```
 Sprint 0（Week 1）：Agent-F 獨跑
   → 地基：Next.js + Prisma 17 表 + Docker + Layout + Types + Zod + Spike
+  → ★ 含 iQCC 相容欄位（ChatHistory.mode/metadata, Step6/7 預留欄位）
 
 Sprint 1~3（Week 2~3）：4 Agent 並行
   → Agent-A  後端 API（Auth, Project, Step, Upload, Analyze, Admin）
   → Agent-S  前端表單（Step1~10 + 自動儲存 + 專案頁面 + 登入頁）
   → Agent-C  圖表元件（ParetoChart, RadarChart — mock data 獨立開發）
   → Agent-I  AI 對話（claude.ts + POST /api/chat + AgentChat.tsx + 10 套 prompt）
+              ★ AI 語氣統一為「AI 品管促進員」，API 預留 mode 參數
 
 Sprint 4（Week 4~5）：2 Agent 並行
   → Agent-E  PDF 匯出（Browserless + 報告 HTML + Export API）
@@ -174,6 +248,18 @@ Sprint 4（Week 4~5）：2 Agent 並行
 ```
 
 關鍵路徑：`Agent-F → Agent-S → Agent-E → Agent-D`
+
+### Phase 2（強化 + iQCC）
+
+```text
+4 Agent 並行（Week 1~5）：
+  → Agent-QCF  ★ iQCC 自動化 AI-QCF（三階段因果探勘 + 壓力測試 + 報告生成）
+  → Agent-AI   AI 幫我填 + 草稿標記 + 健康度建議
+  → Agent-VIZ  魚骨圖編輯器 + 甘特圖 + 評價矩陣完整版
+  → Agent-COA  輔導紀錄 + 通知 + PII 過濾 + 精簡模式 + 研究數據匯出
+```
+
+Phase 2 關鍵路徑：`Agent-QCF`（iQCC 核心功能）
 
 ---
 
@@ -255,7 +341,12 @@ Sprint 4（Week 4~5）：2 Agent 並行
 │   │   ├── csv-parser.ts           # fast-csv stream pipeline
 │   │   ├── chart-data.ts           # sortPareto, calculateImprovement
 │   │   ├── step-schemas.ts         # Zod schema（Step1Data ~ Step10Data）
-│   │   └── export.ts               # Browserless PDF
+│   │   ├── export.ts               # Browserless PDF
+│   │   └── iqcc/                   # Phase 2: iQCC 引導式 AI 工作流
+│   │       ├── guided-analysis.ts  # 三階段因果探勘法
+│   │       ├── pressure-test.ts    # 對策壓力測試迴圈
+│   │       ├── report-generation.ts # AI 報告生成
+│   │       └── background-scan.ts  # 背景掃描 / 外部對標
 │   └── types/
 │       └── index.ts
 ├── prisma/
@@ -333,3 +424,6 @@ docker exec -it qcc-db psql -U qcc -d qcc_helper  # 資料庫 CLI
 - **Step UNIQUE constraint** — `(project_id, step_number)` 保證每專案每步驟只有一筆
 - **評價矩陣** — MVP 用圈長代填版（一人填分），Phase 2 改為每位圈員各別打分
 - **魚骨圖** — MVP 用樹狀列表 UI（數據結構相同 = main_categories JSON），Phase 2 才做互動圖
+- **iQCC 研究** — 系統在研究中作為實驗組工具，對照組用傳統手動流程不進系統
+- **AI-QCF** — 系統本身就是自動化的 AI 品管促進員，不需額外人力。Phase 1 用 freeform chat，Phase 2 擴展為引導式工作流
+- **10 步驟 vs 8 步驟** — 永遠維持台灣 10 步驟標準。iQCC 的「對策測試」作為 Step 7 子流程，不新增步驟

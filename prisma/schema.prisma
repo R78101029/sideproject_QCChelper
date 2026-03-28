@@ -1,0 +1,463 @@
+// QCC Helper — Prisma Schema
+// 17 tables as defined in requirements.md §6.2
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────
+
+enum UserRole {
+  team_rep
+  qcc_admin
+  sys_admin
+}
+
+enum MemberRole {
+  leader
+  member
+  advisor
+}
+
+enum UserCircleRole {
+  leader
+  member
+}
+
+enum ProjectStatus {
+  active
+  completed
+  archived
+}
+
+enum ThemeType {
+  reduction
+  improvement
+}
+
+enum StepStatus {
+  not_started
+  in_progress
+  completed
+}
+
+enum InputMode {
+  online
+  upload
+  mixed
+}
+
+enum ViewMode {
+  quick
+  full
+}
+
+enum UploadPurpose {
+  data
+  attachment
+  alternative
+}
+
+enum ChatRole {
+  user
+  assistant
+}
+
+enum ChangeType {
+  create
+  update
+  upload
+  delete
+}
+
+enum SuggestionStatus {
+  pending
+  in_progress
+  done
+}
+
+enum BenefitType {
+  time_saving
+  cost_saving
+  quality_improvement
+  satisfaction
+  other
+}
+
+enum FollowUpType {
+  three_month
+  six_month
+  twelve_month
+}
+
+enum FollowUpStatus {
+  pending
+  completed
+  skipped
+}
+
+enum NotificationType {
+  coaching_suggestion
+  follow_up_reminder
+}
+
+// ─── 1. User ──────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  username      String    @unique @db.VarChar(50)
+  passwordHash  String    @map("password_hash") @db.VarChar(255)
+  displayName   String    @map("display_name") @db.VarChar(100)
+  role          UserRole
+  email         String?   @db.VarChar(255)
+  department    String?   @db.VarChar(100)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  userCircles        UserCircle[]
+  createdProjects    Project[]          @relation("ProjectCreatedBy")
+  uploads            Upload[]
+  chatHistories      ChatHistory[]
+  stepChangeLogs     StepChangeLog[]
+  coachingRecords    CoachingRecord[]
+  discussionItems    DiscussionItem[]
+  projectTemplates   ProjectTemplate[]
+  systemSettings     SystemSetting[]
+  projectBenefits    ProjectBenefit[]
+  followUps          FollowUp[]
+  notifications      Notification[]
+  members            Member[]           @relation("MemberUser")
+
+  @@map("users")
+}
+
+// ─── 2. UserCircle ────────────────────────────────────────────────
+
+model UserCircle {
+  id         String         @id @default(uuid()) @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  projectId  String         @map("project_id") @db.Uuid
+  memberRole UserCircleRole @map("member_role")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@map("user_circles")
+}
+
+// ─── 3. Project ───────────────────────────────────────────────────
+
+model Project {
+  id                   String        @id @default(uuid()) @db.Uuid
+  name                 String        @db.VarChar(200)
+  circleName           String        @map("circle_name") @db.VarChar(100)
+  department           String        @db.VarChar(100)
+  periodStart          DateTime?     @map("period_start") @db.Date
+  periodEnd            DateTime?     @map("period_end") @db.Date
+  status               ProjectStatus @default(active)
+  themeType            ThemeType?    @map("theme_type")
+  topicCategory        String?       @map("topic_category") @db.VarChar(100)
+  isFeatured           Boolean       @default(false) @map("is_featured")
+  isPublic             Boolean       @default(false) @map("is_public")
+  continuationOf       String?       @map("continuation_of") @db.Uuid
+  currentRate          Decimal?      @map("current_rate")
+  targetRate           Decimal?      @map("target_rate")
+  postRate             Decimal?      @map("post_rate")
+  improvementRate      Decimal?      @map("improvement_rate")
+  goalAchievementRate  Decimal?      @map("goal_achievement_rate")
+  templateId           String?       @map("template_id") @db.Uuid
+  createdBy            String        @map("created_by") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  creator          User              @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
+  continuedFrom    Project?          @relation("ProjectContinuation", fields: [continuationOf], references: [id])
+  continuations    Project[]         @relation("ProjectContinuation")
+  template         ProjectTemplate?  @relation(fields: [templateId], references: [id])
+  userCircles      UserCircle[]
+  members          Member[]
+  steps            Step[]
+  uploads          Upload[]
+  references       Reference[]
+  coachingRecords  CoachingRecord[]
+  discussionItems  DiscussionItem[]
+  chatHistories    ChatHistory[]
+  stepChangeLogs   StepChangeLog[]
+  projectBenefit   ProjectBenefit?
+  followUps        FollowUp[]
+  notifications    Notification[]
+
+  @@map("projects")
+}
+
+// ─── 4. Member ────────────────────────────────────────────────────
+
+model Member {
+  id        String     @id @default(uuid()) @db.Uuid
+  projectId String     @map("project_id") @db.Uuid
+  name      String     @db.VarChar(100)
+  title     String?    @db.VarChar(100)
+  role      MemberRole
+  division  String?    @db.VarChar(100)
+  userId    String?    @map("user_id") @db.Uuid
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation("MemberUser", fields: [userId], references: [id])
+
+  @@map("members")
+}
+
+// ─── 5. Step ──────────────────────────────────────────────────────
+
+model Step {
+  id            String     @id @default(uuid()) @db.Uuid
+  projectId     String     @map("project_id") @db.Uuid
+  stepNumber    Int        @map("step_number")
+  status        StepStatus @default(not_started)
+  inputMode     InputMode  @default(online) @map("input_mode")
+  viewMode      ViewMode   @default(quick) @map("view_mode")
+  data          Json?
+  aiDraftFields Json?      @map("ai_draft_fields")
+  completedAt   DateTime?  @map("completed_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, stepNumber])
+  @@map("steps")
+}
+
+// ─── 6. Upload ────────────────────────────────────────────────────
+
+model Upload {
+  id         String        @id @default(uuid()) @db.Uuid
+  projectId  String        @map("project_id") @db.Uuid
+  stepNumber Int           @map("step_number")
+  fileName   String        @map("file_name") @db.VarChar(255)
+  fileType   String        @map("file_type") @db.VarChar(50)
+  fileSize   Int           @map("file_size")
+  filePath   String        @map("file_path") @db.VarChar(500)
+  purpose    UploadPurpose
+  uploadedBy String        @map("uploaded_by") @db.Uuid
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader User    @relation(fields: [uploadedBy], references: [id])
+
+  @@map("uploads")
+}
+
+// ─── 7. Reference ─────────────────────────────────────────────────
+
+model Reference {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  stepNumber   Int      @map("step_number")
+  title        String   @db.VarChar(500)
+  sourceUrl    String?  @map("source_url") @db.VarChar(1000)
+  summary      String?  @db.Text
+  citationText String?  @map("citation_text") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("references")
+}
+
+// ─── 8. CoachingRecord ────────────────────────────────────────────
+
+model CoachingRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  coachingDate DateTime @map("coaching_date") @db.Date
+  advisorName  String   @map("advisor_name") @db.VarChar(100)
+  summary      String?  @db.Text
+  createdBy    String   @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator     User                 @relation(fields: [createdBy], references: [id])
+  suggestions CoachingSuggestion[]
+
+  @@map("coaching_records")
+}
+
+// ─── 9. CoachingSuggestion ────────────────────────────────────────
+
+model CoachingSuggestion {
+  id               String           @id @default(uuid()) @db.Uuid
+  coachingRecordId String           @map("coaching_record_id") @db.Uuid
+  stepNumber       Int?             @map("step_number")
+  content          String           @db.Text
+  status           SuggestionStatus @default(pending)
+  resolvedAt       DateTime?        @map("resolved_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  coachingRecord CoachingRecord @relation(fields: [coachingRecordId], references: [id], onDelete: Cascade)
+
+  @@map("coaching_suggestions")
+}
+
+// ─── 10. DiscussionItem ───────────────────────────────────────────
+
+model DiscussionItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  stepNumber Int?     @map("step_number")
+  content    String   @db.Text
+  isResolved Boolean  @default(false) @map("is_resolved")
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@map("discussion_items")
+}
+
+// ─── 11. ChatHistory ──────────────────────────────────────────────
+
+model ChatHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  stepNumber Int?     @map("step_number")
+  userId     String   @map("user_id") @db.Uuid
+  role       ChatRole
+  content    String   @db.Text
+  mode       String   @default("freeform") @db.VarChar(50) // Phase 2: guided_analysis, pressure_test, report_generation, background_scan
+  metadata   Json?    // Phase 2: workflow state, round records
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@map("chat_histories")
+}
+
+// ─── 12. StepChangeLog ────────────────────────────────────────────
+
+model StepChangeLog {
+  id            String     @id @default(uuid()) @db.Uuid
+  projectId     String     @map("project_id") @db.Uuid
+  stepNumber    Int        @map("step_number")
+  changeType    ChangeType @map("change_type")
+  changeSummary String?    @map("change_summary") @db.VarChar(500)
+  changedBy     String     @map("changed_by") @db.Uuid
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changer User    @relation(fields: [changedBy], references: [id])
+
+  @@map("step_change_logs")
+}
+
+// ─── 13. ProjectTemplate ──────────────────────────────────────────
+
+model ProjectTemplate {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @db.VarChar(200)
+  department      String?  @db.VarChar(100)
+  description     String?  @db.Text
+  templateData    Json?    @map("template_data")
+  isBuiltin       Boolean  @default(false) @map("is_builtin")
+  sourceProjectId String?  @map("source_project_id") @db.Uuid
+  createdBy       String   @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  creator  User      @relation(fields: [createdBy], references: [id])
+  projects Project[]
+
+  @@map("project_templates")
+}
+
+// ─── 14. SystemSetting ────────────────────────────────────────────
+
+model SystemSetting {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(100)
+  value       String   @db.Text
+  description String?  @db.VarChar(500)
+  updatedBy   String   @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updater User @relation(fields: [updatedBy], references: [id])
+
+  @@map("system_settings")
+}
+
+// ─── 15. ProjectBenefit ───────────────────────────────────────────
+
+model ProjectBenefit {
+  id             String      @id @default(uuid()) @db.Uuid
+  projectId      String      @unique @map("project_id") @db.Uuid
+  benefitType    BenefitType @map("benefit_type")
+  description    String?     @db.Text
+  estimatedValue Decimal?    @map("estimated_value")
+  estimatedUnit  String?     @map("estimated_unit") @db.VarChar(50)
+  isAiEstimated  Boolean     @default(false) @map("is_ai_estimated")
+  createdBy      String      @map("created_by") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@map("project_benefits")
+}
+
+// ─── 16. FollowUp ─────────────────────────────────────────────────
+
+model FollowUp {
+  id             String         @id @default(uuid()) @db.Uuid
+  projectId      String         @map("project_id") @db.Uuid
+  followUpType   FollowUpType   @map("follow_up_type")
+  scheduledDate  DateTime       @map("scheduled_date") @db.Date
+  actualDate     DateTime?      @map("actual_date") @db.Date
+  status         FollowUpStatus @default(pending)
+  followUpRate   Decimal?       @map("follow_up_rate")
+  isSustained    Boolean?       @map("is_sustained")
+  notes          String?        @db.Text
+  createdBy      String?        @map("created_by") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User?   @relation(fields: [createdBy], references: [id])
+
+  @@map("follow_ups")
+}
+
+// ─── 17. Notification ─────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  projectId String?          @map("project_id") @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  content   String?          @db.VarChar(500)
+  isRead    Boolean          @default(false) @map("is_read")
+  linkUrl   String?          @map("link_url") @db.VarChar(500)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
