@@ -4,10 +4,10 @@ import { useRef } from 'react'
 import ReactEChartsCore from 'echarts-for-react/lib/core'
 import * as echarts from 'echarts/core'
 import { RadarChart as ERadarChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent, RadarComponent } from 'echarts/components'
+import { TooltipComponent, LegendComponent, RadarComponent, TitleComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
-echarts.use([ERadarChart, TooltipComponent, LegendComponent, RadarComponent, CanvasRenderer])
+echarts.use([ERadarChart, TooltipComponent, LegendComponent, RadarComponent, TitleComponent, CanvasRenderer])
 
 interface Props {
   criteria: string[]

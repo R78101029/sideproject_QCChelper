@@ -3,12 +3,12 @@
 import { useRef } from 'react'
 import ReactEChartsCore from 'echarts-for-react/lib/core'
 import * as echarts from 'echarts/core'
-import { BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { BarChart, CustomChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { Step3ScheduleItem } from '@/types'
 
-echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([BarChart, CustomChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent, CanvasRenderer])
 
 interface Props {
   schedule: Step3ScheduleItem[]
