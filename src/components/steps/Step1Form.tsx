@@ -113,7 +113,7 @@ export default function Step1Form({ data, onChange }: Props) {
 
       <Card title="圈員名單">
         {(d.members || []).map((m, i) => (
-          <div key={i} className="mb-3 flex items-end gap-3">
+          <div key={`member-${i}-${m.name}`} className="mb-3 flex items-end gap-3">
             <Input
               label={i === 0 ? '姓名' : undefined}
               value={m.name}

@@ -47,7 +47,7 @@ export default function GanttChart({ schedule, title = '活動甘特圖' }: Prop
   const actualData = items
     .map((s, i) => {
       if (!s.actual_start) return null
-      const end = s.actual_end || new Date().toISOString().split('T')[0]
+      const end = s.actual_end || s.planned_end || s.actual_start
       return {
         name: '實際',
         value: [items.length - 1 - i, toMs(s.actual_start) - baseMs, toMs(end) - baseMs],

@@ -56,7 +56,7 @@ export default function HomePage() {
   }
 
   return (
-    <AppLayout displayName={user?.displayName} onLogout={handleLogout}>
+    <AppLayout displayName={user?.displayName} userRole={user?.role} onLogout={handleLogout}>
       <div className="mx-auto max-w-4xl">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gray-900">我的專案</h1>

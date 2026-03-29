@@ -8,7 +8,15 @@ import FishboneChart from '@/components/charts/FishboneChart'
 import GuidedAnalysisPanel from '@/components/steps/GuidedAnalysisPanel'
 import type { Step6Data, MainCategory, MediumCause } from '@/types'
 
-const DEFAULT_5M1E = ['Man（人員）', 'Machine（設備）', 'Material（材料）', 'Method（方法）', 'Measurement（測量）', 'Environment（環境）']
+// Stable IDs — avoid crypto.randomUUID() during render (causes hydration mismatch)
+const DEFAULT_5M1E = [
+  { id: '5m1e-man', name: 'Man（人員）' },
+  { id: '5m1e-machine', name: 'Machine（設備）' },
+  { id: '5m1e-material', name: 'Material（材料）' },
+  { id: '5m1e-method', name: 'Method（方法）' },
+  { id: '5m1e-measurement', name: 'Measurement（測量）' },
+  { id: '5m1e-environment', name: 'Environment（環境）' },
+]
 
 interface Props {
   data: Record<string, unknown>
@@ -26,12 +34,12 @@ export default function Step6Form({ data, onChange, projectId }: Props) {
     onChange({ ...data, ...patch })
   }
 
-  // Initialize with 5M1E if empty
+  // Initialize with 5M1E if empty (using stable IDs to avoid hydration mismatch)
   const categories: MainCategory[] = d.main_categories?.length
     ? d.main_categories
-    : DEFAULT_5M1E.map((name) => ({
-        id: crypto.randomUUID(),
-        name,
+    : DEFAULT_5M1E.map((item) => ({
+        id: item.id,
+        name: item.name,
         medium_causes: [],
       }))
 

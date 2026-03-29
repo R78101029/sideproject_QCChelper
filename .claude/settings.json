@@ -1,7 +1,26 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:3000/api/auth/me)",
+      "Bash(curl -s http://localhost:3000/api/projects)",
+      "Bash(curl -sv http://localhost:3000/api/auth/me)",
+      "Bash(curl -s http://localhost:3100/api/auth/me)",
+      "Bash(curl -s http://localhost:3100/api/projects)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://localhost:3100/api/projects/00000000-0000-0000-0000-000000000001/steps/4\")",
+      "Bash(docker exec:*)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/postgres\" npx prisma migrate dev --name init_qcc)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:postgres@localhost:5432/postgres\" npx prisma db seed)",
+      "Bash(lsof -ti:3100)",
+      "Bash(xargs kill:*)",
+      "Bash(curl -s -c /tmp/qcc-cookies -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"demo\"\",\"\"password\"\":\"\"demo123\"\"}' http://localhost:3100/api/auth/login)",
+      "Bash(curl -s -b /tmp/qcc-cookies http://localhost:3100/api/projects)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s -b /tmp/qcc-cookies http://localhost:3100/api/auth/me)"
+    ],
     "additionalDirectories": [
-      "/Users/vierylinmbp16/CodeProject/QCChelper/src/app/api/projects/[id]"
+      "/Users/vierylinmbp16/CodeProject/QCChelper/src/app/api/projects/[id]",
+      "/Users/vierylinmbp16/CodeProject/QCChelper/src/app/api/projects/[id]/steps/[n]"
     ]
   }
 }

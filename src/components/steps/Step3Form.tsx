@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import Input from '@/components/ui/Input'
 import Card from '@/components/ui/Card'
 import GanttChart from '@/components/charts/GanttChart'
@@ -35,6 +36,15 @@ export default function Step3Form({ data, onChange }: Props) {
         actual_start: null,
         actual_end: null,
       }))
+
+  // If schedule was just initialized with defaults, persist it
+  const initialized = useRef(false)
+  useEffect(() => {
+    if (!initialized.current && !d.schedule?.length) {
+      initialized.current = true
+      update({ schedule })
+    }
+  }) // intentionally no deps — run once when schedule is empty
 
   const updateScheduleItem = (index: number, field: string, value: string | null) => {
     const items = [...schedule]

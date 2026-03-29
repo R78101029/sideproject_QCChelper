@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import AppLayout from '@/components/layout/AppLayout'
 import SaveIndicator from '@/components/ui/SaveIndicator'
 import Button from '@/components/ui/Button'
+import { toast } from '@/components/ui/Toast'
 import Step1Form from '@/components/steps/Step1Form'
 import Step2Form from '@/components/steps/Step2Form'
 import Step3Form from '@/components/steps/Step3Form'
@@ -114,17 +115,21 @@ export default function StepPage() {
       }
 
       // Try to parse as JSON and merge into form data
-      try {
-        // Strip markdown code fences if present
-        const cleaned = fullText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-        const draft = JSON.parse(cleaned)
-        if (draft && typeof draft === 'object') {
-          const merged = { ...stepData, ...draft }
-          setStepData(merged)
-          onChange(merged)
+      if (!fullText.trim()) {
+        toast('error', 'AI 未回傳內容，請確認 ANTHROPIC_API_KEY 已設定')
+      } else {
+        try {
+          const cleaned = fullText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+          const draft = JSON.parse(cleaned)
+          if (draft && typeof draft === 'object') {
+            const merged = { ...stepData, ...draft }
+            setStepData(merged)
+            onChange(merged)
+            toast('success', 'AI 草稿已填入，請檢查並修改')
+          }
+        } catch {
+          toast('info', 'AI 回覆非結構化格式，請開啟右下角對話查看')
         }
-      } catch {
-        // If not valid JSON, ignore — user can still see it in chat
       }
     } finally {
       setAiDrafting(false)

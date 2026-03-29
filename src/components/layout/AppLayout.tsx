@@ -10,6 +10,7 @@ interface AppLayoutProps {
   circleName?: string
   stepStatuses?: Record<number, 'not_started' | 'in_progress' | 'completed'>
   displayName?: string
+  userRole?: string
   onLogout?: () => void
 }
 
@@ -20,6 +21,7 @@ export default function AppLayout({
   circleName,
   stepStatuses,
   displayName,
+  userRole,
   onLogout,
 }: AppLayoutProps) {
   return (
@@ -29,6 +31,7 @@ export default function AppLayout({
         projectName={projectName}
         circleName={circleName}
         stepStatuses={stepStatuses}
+        userRole={userRole}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header displayName={displayName} onLogout={onLogout} />

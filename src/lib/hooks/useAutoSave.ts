@@ -15,6 +15,7 @@ export function useAutoSave<T>({ projectId, stepNumber, debounceMs = 3000 }: Use
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dataRef = useRef<T | null>(null)
   const isMountedRef = useRef(true)
+  const prevStepRef = useRef(`${projectId}-${stepNumber}`)
 
   const save = useCallback(async (data: T) => {
     setStatus('saving')
@@ -32,6 +33,21 @@ export function useAutoSave<T>({ projectId, stepNumber, debounceMs = 3000 }: Use
     } catch {
       if (isMountedRef.current) setStatus('unsaved')
       return false
+    }
+  }, [projectId, stepNumber])
+
+  // When step changes: flush pending save for the OLD step, then reset
+  useEffect(() => {
+    const key = `${projectId}-${stepNumber}`
+    if (prevStepRef.current !== key) {
+      // Flush any pending timer (saves to old step via captured closure)
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      dataRef.current = null
+      setStatus('saved')
+      prevStepRef.current = key
     }
   }, [projectId, stepNumber])
 
@@ -62,8 +78,9 @@ export function useAutoSave<T>({ projectId, stepNumber, debounceMs = 3000 }: Use
     return () => window.removeEventListener('beforeunload', handler)
   }, [status])
 
-  // Cleanup
+  // Cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true
     return () => {
       isMountedRef.current = false
       if (timerRef.current) clearTimeout(timerRef.current)

@@ -21,6 +21,7 @@ interface SidebarProps {
   projectName?: string
   circleName?: string
   stepStatuses?: Record<number, 'not_started' | 'in_progress' | 'completed'>
+  userRole?: string
 }
 
 function StepStatusDot({ status }: { status: 'not_started' | 'in_progress' | 'completed' }) {
@@ -32,7 +33,8 @@ function StepStatusDot({ status }: { status: 'not_started' | 'in_progress' | 'co
   return <span className={`inline-block h-2 w-2 rounded-full ${colors[status]}`} />
 }
 
-export default function Sidebar({ projectId, projectName, circleName, stepStatuses = {} }: SidebarProps) {
+export default function Sidebar({ projectId, projectName, circleName, stepStatuses = {}, userRole }: SidebarProps) {
+  const isAdmin = userRole === 'qcc_admin' || userRole === 'sys_admin'
   const pathname = usePathname()
 
   return (
@@ -145,21 +147,23 @@ export default function Sidebar({ projectId, projectName, circleName, stepStatus
         )}
       </nav>
 
-      {/* Footer — Admin links */}
-      <div className="border-t border-gray-200 px-3 py-3 space-y-1">
-        <Link href="/admin/dashboard" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-          管理員儀表板
-        </Link>
-        <Link href="/admin/knowledge" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-          知識庫
-        </Link>
-        <Link href="/admin/analytics" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-          趨勢分析
-        </Link>
-        <Link href="/admin/reports" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-          評鑑報告
-        </Link>
-      </div>
+      {/* Footer — Admin links (only for admin roles) */}
+      {isAdmin && (
+        <div className="border-t border-gray-200 px-3 py-3 space-y-1">
+          <Link href="/admin/dashboard" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+            管理員儀表板
+          </Link>
+          <Link href="/admin/knowledge" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+            知識庫
+          </Link>
+          <Link href="/admin/analytics" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+            趨勢分析
+          </Link>
+          <Link href="/admin/reports" className="block rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+            評鑑報告
+          </Link>
+        </div>
+      )}
     </aside>
   )
 }

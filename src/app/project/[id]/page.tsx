@@ -96,7 +96,7 @@ export default function ProjectOverviewPage() {
             const step = project.steps.find((s) => s.stepNumber === n)
 
             return (
-              <Link key={n} href={`/project/${project.id}/step/${n}`}>
+              <Link key={n} href={`/project/${project.id}/step/${n}`} className="block">
                 <Card className="cursor-pointer transition-shadow hover:shadow-md">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
