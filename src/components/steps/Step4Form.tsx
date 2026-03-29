@@ -6,6 +6,7 @@ import Textarea from '@/components/ui/Textarea'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import ParetoChart from '@/components/charts/ParetoChart'
+import AiActionButton from '@/components/ui/AiActionButton'
 import type { Step4Data } from '@/types'
 
 interface Props {
@@ -148,6 +149,19 @@ export default function Step4Form({ data, onChange, projectId }: Props) {
           />
         </div>
       </Card>
+
+      {/* AI Report Generation */}
+      {(d.categories || []).length > 0 && (
+        <Card title="AI 輔助">
+          <AiActionButton
+            label="AI 生成現況分析報告"
+            projectId={projectId}
+            stepNumber={4}
+            mode="report_generation"
+            message="請根據步驟四的數據生成現況分析整合報告。"
+          />
+        </Card>
+      )}
 
       {(d.pareto_sorted || []).length > 0 && (
         <Card title="柏拉圖（改善前）">

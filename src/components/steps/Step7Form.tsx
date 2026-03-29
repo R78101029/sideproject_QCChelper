@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
+import PressureTestPanel from '@/components/steps/PressureTestPanel'
 import type { Step7Data, Countermeasure } from '@/types'
 
 interface Props {
@@ -13,7 +14,10 @@ interface Props {
   projectId: string
 }
 
-export default function Step7Form({ data, onChange }: Props) {
+type Tab = 'countermeasures' | 'pressure_test'
+
+export default function Step7Form({ data, onChange, projectId }: Props) {
+  const [activeTab, setActiveTab] = useState<Tab>('countermeasures')
   const d = data as unknown as Step7Data
 
   const update = (patch: Partial<Step7Data>) => {
@@ -99,6 +103,41 @@ export default function Step7Form({ data, onChange }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Tab switcher */}
+      <div className="flex border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab('countermeasures')}
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === 'countermeasures'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          對策擬定
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('pressure_test')}
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === 'pressure_test'
+              ? 'border-b-2 border-blue-600 text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          壓力測試
+        </button>
+      </div>
+
+      {activeTab === 'pressure_test' ? (
+        <PressureTestPanel
+          projectId={projectId}
+          countermeasures={d.countermeasures || []}
+          pressureTests={d.pressure_test || []}
+          onUpdate={(tests) => update({ pressure_test: tests })}
+        />
+      ) : (
+      <>
       {/* 5W1H Countermeasures */}
       <Card title="對策方案（5W1H）">
         {(d.countermeasures || []).map((cm, i) => (
@@ -187,12 +226,14 @@ export default function Step7Form({ data, onChange }: Props) {
                             value={getScore(cm.id, criterion) || ''}
                             onChange={(e) => setScore(cm.id, criterion, parseInt(e.target.value) || 0)}
                             className="w-14 rounded border border-gray-300 px-2 py-1 text-center text-sm"
+                            aria-label={`${cm.what || '對策'} - ${criterion} 評分`}
                           />
                         </td>
                       ))}
                       <td className="px-2 py-2 text-center font-medium">{total}</td>
                       <td className="px-2 py-2 text-center">
                         <button
+                          type="button"
                           onClick={() => toggleAdopted(cm.id)}
                           className={`rounded-full px-2 py-0.5 text-xs ${
                             isAdopted ? 'bg-green-100 text-green-700' : isRejected ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
@@ -210,12 +251,8 @@ export default function Step7Form({ data, onChange }: Props) {
         </Card>
       )}
 
-      {/* Phase 2 placeholder */}
-      <Card title="對策壓力測試" description="Phase 2 啟用">
-        <div className="flex h-16 items-center justify-center rounded-md border-2 border-dashed border-gray-200 text-sm text-gray-400">
-          對策壓力測試迴圈（Phase 2）
-        </div>
-      </Card>
+      </>
+      )}
     </div>
   )
 }

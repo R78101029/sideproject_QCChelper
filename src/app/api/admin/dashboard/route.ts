@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server'
+import { MOCK_MODE, mockDb } from '@/lib/mock-db'
 import { prisma } from '@/lib/prisma'
 import { requireRole } from '@/lib/auth'
 
 export async function GET() {
+  if (MOCK_MODE) {
+    return NextResponse.json({ success: true, data: mockDb.getDashboard() })
+  }
+
   try {
     await requireRole(['qcc_admin', 'sys_admin'])
   } catch {

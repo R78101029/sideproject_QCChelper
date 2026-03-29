@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MOCK_MODE, mockDb } from '@/lib/mock-db'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
 
 // GET /api/projects — list projects (filtered by role)
 export async function GET() {
+  if (MOCK_MODE) {
+    return NextResponse.json({ success: true, data: mockDb.getProjects() })
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ success: false, error: '未登入' }, { status: 401 })
@@ -45,22 +50,27 @@ export async function GET() {
 
 // POST /api/projects — create project
 export async function POST(request: NextRequest) {
+  const body = await request.json()
+  const { name, circleName, department, periodStart, periodEnd, themeType } = body
+
+  if (!name || !circleName || !department) {
+    return NextResponse.json(
+      { success: false, error: '請填寫專案名稱、圈名及科別' },
+      { status: 400 }
+    )
+  }
+
+  if (MOCK_MODE) {
+    const result = mockDb.createProject({ name, circleName, department, periodStart, periodEnd, themeType })
+    return NextResponse.json({ success: true, data: result }, { status: 201 })
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ success: false, error: '未登入' }, { status: 401 })
   }
 
   try {
-    const body = await request.json()
-    const { name, circleName, department, periodStart, periodEnd, themeType } = body
-
-    if (!name || !circleName || !department) {
-      return NextResponse.json(
-        { success: false, error: '請填寫專案名稱、圈名及科別' },
-        { status: 400 }
-      )
-    }
-
     const project = await prisma.project.create({
       data: {
         name,

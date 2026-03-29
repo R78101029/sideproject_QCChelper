@@ -5,6 +5,7 @@ import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
+import AiActionButton from '@/components/ui/AiActionButton'
 import type { Step2Data } from '@/types'
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
   projectId: string
 }
 
-export default function Step2Form({ data, onChange }: Props) {
+export default function Step2Form({ data, onChange, projectId }: Props) {
   const d = data as unknown as Step2Data
 
   const update = (patch: Partial<Step2Data>) => {
@@ -169,6 +170,25 @@ export default function Step2Form({ data, onChange }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </Card>
+      )}
+
+      {/* AI Background Scan */}
+      {(d.candidates || []).length > 0 && (
+        <Card title="AI 輔助">
+          <div className="flex flex-wrap gap-2">
+            {(d.candidates || []).map((c) => (
+              <AiActionButton
+                key={c.id}
+                label={`掃描：${c.name || '未命名'}`}
+                projectId={projectId}
+                stepNumber={2}
+                mode="background_scan"
+                message={`請對「${c.name}」這個主題進行背景掃描分析。`}
+                metadata={{ topicName: c.name }}
+              />
+            ))}
           </div>
         </Card>
       )}

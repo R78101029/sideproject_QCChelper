@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken } from '@/lib/auth'
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login']
 
 export function middleware(request: NextRequest) {
+  // Mock mode: bypass all auth checks
+  if (process.env.MOCK_MODE === 'true') {
+    return NextResponse.next()
+  }
+
   const { pathname } = request.nextUrl
 
   // Allow public paths
@@ -16,6 +20,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Check for auth cookie existence (full JWT verification happens in API routes)
   const token = request.cookies.get('qcc_token')?.value
   if (!token) {
     if (pathname.startsWith('/api/')) {
@@ -24,22 +29,33 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const payload = verifyToken(token)
-  if (!payload) {
+  // Basic JWT structure check (3 parts separated by dots)
+  const parts = token.split('.')
+  if (parts.length !== 3) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ success: false, error: 'Token 無效' }, { status: 401 })
     }
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Admin routes require qcc_admin or sys_admin
-  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
-    if (payload.role === 'team_rep') {
-      if (pathname.startsWith('/api/')) {
-        return NextResponse.json({ success: false, error: '無權限' }, { status: 403 })
+  // Decode payload for role check (without signature verification — API routes do full verify)
+  try {
+    const payload = JSON.parse(atob(parts[1]))
+
+    // Admin routes require qcc_admin or sys_admin
+    if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+      if (payload.role === 'team_rep') {
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json({ success: false, error: '無權限' }, { status: 403 })
+        }
+        return NextResponse.redirect(new URL('/', request.url))
       }
-      return NextResponse.redirect(new URL('/', request.url))
     }
+  } catch {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ success: false, error: 'Token 無效' }, { status: 401 })
+    }
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
   return NextResponse.next()

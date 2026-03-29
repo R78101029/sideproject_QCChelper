@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import ParetoChart from '@/components/charts/ParetoChart'
 import RadarChart from '@/components/charts/RadarChart'
+import AiActionButton from '@/components/ui/AiActionButton'
 import type { Step9Data } from '@/types'
 
 interface Props {
@@ -141,6 +142,19 @@ export default function Step9Form({ data, onChange, projectId }: Props) {
           + 新增評估項目
         </Button>
       </Card>
+
+      {/* AI Report */}
+      {d.post_rate != null && (
+        <Card title="AI 輔助">
+          <AiActionButton
+            label="AI 生成成效比較報告"
+            projectId={projectId}
+            stepNumber={9}
+            mode="report_generation"
+            message="請根據改善前後數據生成成效比較報告。"
+          />
+        </Card>
+      )}
 
       {(d.post_pareto_sorted || []).length > 0 && (
         <Card title="改善後柏拉圖">

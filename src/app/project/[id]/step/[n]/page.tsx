@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import AppLayout from '@/components/layout/AppLayout'
 import SaveIndicator from '@/components/ui/SaveIndicator'
+import Button from '@/components/ui/Button'
 import Step1Form from '@/components/steps/Step1Form'
 import Step2Form from '@/components/steps/Step2Form'
 import Step3Form from '@/components/steps/Step3Form'
@@ -51,6 +52,8 @@ export default function StepPage() {
   const [stepData, setStepData] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const [aiDrafting, setAiDrafting] = useState(false)
+
   const { status: saveStatus, onChange } = useAutoSave<Record<string, unknown>>({
     projectId: id,
     stepNumber,
@@ -77,6 +80,56 @@ export default function StepPage() {
     setStepData(data)
     onChange(data)
   }
+
+  const handleAiDraft = useCallback(async () => {
+    setAiDrafting(true)
+    try {
+      const res = await fetch(`/api/projects/${id}/steps/${n}/ai-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: `請為步驟${n}生成草稿。` }),
+      })
+
+      const reader = res.body?.getReader()
+      if (!reader) return
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const d = line.slice(6)
+          if (d === '[DONE]') break
+          try {
+            const parsed = JSON.parse(d)
+            if (parsed.text) fullText += parsed.text
+          } catch { /* skip */ }
+        }
+      }
+
+      // Try to parse as JSON and merge into form data
+      try {
+        // Strip markdown code fences if present
+        const cleaned = fullText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+        const draft = JSON.parse(cleaned)
+        if (draft && typeof draft === 'object') {
+          const merged = { ...stepData, ...draft }
+          setStepData(merged)
+          onChange(merged)
+        }
+      } catch {
+        // If not valid JSON, ignore — user can still see it in chat
+      }
+    } finally {
+      setAiDrafting(false)
+    }
+  }, [id, n, stepData, onChange])
 
   if (loading || !stepData) {
     return (
@@ -112,7 +165,18 @@ export default function StepPage() {
               步驟 {stepNumber}：{STEP_NAMES[stepNumber - 1]}
             </h1>
           </div>
-          <SaveIndicator status={saveStatus} />
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleAiDraft}
+              loading={aiDrafting}
+            >
+              AI 幫我填
+            </Button>
+            <SaveIndicator status={saveStatus} />
+          </div>
         </div>
 
         <StepForm data={stepData} onChange={handleChange} projectId={id} />

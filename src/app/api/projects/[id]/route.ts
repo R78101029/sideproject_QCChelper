@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MOCK_MODE, mockDb } from '@/lib/mock-db'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
 
@@ -8,6 +9,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+
+  if (MOCK_MODE) {
+    const project = mockDb.getProject(id)
+    if (!project) return NextResponse.json({ success: false, error: '專案不存在' }, { status: 404 })
+    return NextResponse.json({ success: true, data: project })
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ success: false, error: '未登入' }, { status: 401 })

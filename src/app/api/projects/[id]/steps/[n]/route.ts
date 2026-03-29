@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MOCK_MODE, mockDb } from '@/lib/mock-db'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth'
 import { getStepSchema } from '@/lib/step-schemas'
@@ -10,13 +11,23 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   const { id, n } = await params
   const stepNumber = parseInt(n, 10)
 
+  if (stepNumber < 1 || stepNumber > 10) {
+    return NextResponse.json({ success: false, error: '步驟編號無效' }, { status: 400 })
+  }
+
+  if (MOCK_MODE) {
+    const step = mockDb.getStep(id, stepNumber)
+    // Apply Zod defaults for empty data
+    if (!step.data || Object.keys(step.data).length === 0) {
+      const schema = getStepSchema(stepNumber)
+      step.data = schema.parse({})
+    }
+    return NextResponse.json({ success: true, data: step })
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ success: false, error: '未登入' }, { status: 401 })
-  }
-
-  if (stepNumber < 1 || stepNumber > 10) {
-    return NextResponse.json({ success: false, error: '步驟編號無效' }, { status: 400 })
   }
 
   const step = await prisma.step.findUnique({
@@ -24,7 +35,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   })
 
   if (!step) {
-    // Return empty default data from Zod schema
     const schema = getStepSchema(stepNumber)
     const defaultData = schema.parse({})
     return NextResponse.json({
@@ -55,25 +65,29 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   const { id, n } = await params
   const stepNumber = parseInt(n, 10)
 
+  if (stepNumber < 1 || stepNumber > 10) {
+    return NextResponse.json({ success: false, error: '步驟編號無效' }, { status: 400 })
+  }
+
+  const body = await request.json()
+  const { data, status } = body
+
+  // Validate with Zod (permissive)
+  const schema = getStepSchema(stepNumber)
+  const parsed = schema.safeParse(data)
+  const validData = parsed.success ? parsed.data : data
+
+  if (MOCK_MODE) {
+    const result = mockDb.saveStep(id, stepNumber, validData as Record<string, unknown>, status)
+    return NextResponse.json({ success: true, data: result })
+  }
+
   const user = await getCurrentUser()
   if (!user) {
     return NextResponse.json({ success: false, error: '未登入' }, { status: 401 })
   }
 
-  if (stepNumber < 1 || stepNumber > 10) {
-    return NextResponse.json({ success: false, error: '步驟編號無效' }, { status: 400 })
-  }
-
   try {
-    const body = await request.json()
-    const { data, status } = body
-
-    // Validate with Zod (permissive — don't block saves)
-    const schema = getStepSchema(stepNumber)
-    const parsed = schema.safeParse(data)
-    const validData = parsed.success ? parsed.data : data
-
-    // Upsert step
     const step = await prisma.step.upsert({
       where: { projectId_stepNumber: { projectId: id, stepNumber } },
       create: {
@@ -89,10 +103,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       },
     })
 
-    // KPI sync: step 4 → current_rate, step 5 → target_rate, step 9 → post metrics
-    await syncKpi(id, stepNumber, validData)
+    // KPI sync
+    await syncKpi(id, stepNumber, validData as Record<string, unknown>)
 
-    // Log change
     await prisma.stepChangeLog.create({
       data: {
         projectId: id,
@@ -119,7 +132,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// KPI sync logic
 async function syncKpi(projectId: string, stepNumber: number, data: Record<string, unknown>) {
   if (stepNumber === 4 && data.current_rate != null) {
     await prisma.project.update({

@@ -6,6 +6,7 @@ import Textarea from '@/components/ui/Textarea'
 import Select from '@/components/ui/Select'
 import Card from '@/components/ui/Card'
 import { calculateTarget } from '@/lib/chart-data'
+import AiActionButton from '@/components/ui/AiActionButton'
 import type { Step5Data } from '@/types'
 
 interface Props {
@@ -137,6 +138,16 @@ export default function Step5Form({ data, onChange, projectId }: Props) {
             rows={3}
             hint="含計算過程說明"
           />
+          <div className="mt-4">
+            <AiActionButton
+              label="AI 外部對標參考"
+              projectId={projectId}
+              stepNumber={5}
+              mode="background_scan"
+              message="請提供此主題的外部對標參考資訊。"
+              metadata={{ topicName: d.reason || '' }}
+            />
+          </div>
         </div>
       </Card>
     </div>

@@ -2,6 +2,7 @@
 
 import Input from '@/components/ui/Input'
 import Card from '@/components/ui/Card'
+import GanttChart from '@/components/charts/GanttChart'
 import type { Step3Data } from '@/types'
 
 const DEFAULT_STEP_NAMES = [
@@ -61,6 +62,11 @@ export default function Step3Form({ data, onChange }: Props) {
             onChange={(e) => update({ meeting_frequency: e.target.value })}
           />
         </div>
+      </Card>
+
+      {/* Gantt Chart */}
+      <Card title="甘特圖">
+        <GanttChart schedule={schedule} />
       </Card>
 
       <Card title="活動時程表">

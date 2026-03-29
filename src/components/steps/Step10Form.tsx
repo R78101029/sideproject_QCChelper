@@ -4,6 +4,7 @@ import Input from '@/components/ui/Input'
 import Textarea from '@/components/ui/Textarea'
 import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
+import AiActionButton from '@/components/ui/AiActionButton'
 import type { Step10Data, Standardization } from '@/types'
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
   projectId: string
 }
 
-export default function Step10Form({ data, onChange }: Props) {
+export default function Step10Form({ data, onChange, projectId }: Props) {
   const d = data as unknown as Step10Data
 
   const update = (patch: Partial<Step10Data>) => {
@@ -104,6 +105,37 @@ export default function Step10Form({ data, onChange }: Props) {
             value={review.next_topic_suggestion}
             onChange={(e) => update({ review: { ...review, next_topic_suggestion: e.target.value } })}
             rows={2}
+          />
+        </div>
+      </Card>
+
+      {/* AI Document Generation */}
+      <Card title="AI 一文多用">
+        <p className="mb-3 text-sm text-gray-500">根據標準化內容，AI 可批量生成不同格式的文件</p>
+        <div className="flex flex-wrap gap-2">
+          <AiActionButton
+            label="生成 SOP"
+            projectId={projectId}
+            stepNumber={10}
+            mode="report_generation"
+            message="請根據標準化內容生成 SOP 標準作業程序。"
+            metadata={{ documentType: 'sop' }}
+          />
+          <AiActionButton
+            label="生成查核表"
+            projectId={projectId}
+            stepNumber={10}
+            mode="report_generation"
+            message="請根據標準化內容生成查核表。"
+            metadata={{ documentType: 'checklist' }}
+          />
+          <AiActionButton
+            label="生成 FAQ"
+            projectId={projectId}
+            stepNumber={10}
+            mode="report_generation"
+            message="請根據標準化內容生成常見問題 FAQ。"
+            metadata={{ documentType: 'faq' }}
           />
         </div>
       </Card>

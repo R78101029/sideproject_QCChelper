@@ -1,5 +1,7 @@
 'use client'
 
+import NotificationBell from './NotificationBell'
+
 interface HeaderProps {
   displayName?: string
   onLogout?: () => void
@@ -9,7 +11,8 @@ export default function Header({ displayName, onLogout }: HeaderProps) {
   return (
     <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-6">
       <div />
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        <NotificationBell />
         {displayName && (
           <span className="text-sm text-gray-600">{displayName}</span>
         )}
