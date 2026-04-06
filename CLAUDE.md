@@ -8,6 +8,97 @@
 
 ---
 
+## 🚨 強制規則：編輯日誌和任務文件化
+
+**所有變更都必須記錄！** 這樣母 Agent 和後續的 Agent 才能了解進度。
+
+### 每次編輯必須做的兩件事：
+
+1. **在 `AGENT_LOG.md` 中留下日誌**
+   - 記錄改了什麼、為什麼改、有什麼外部影響
+   - 包含日期、Agent 名稱、簡要說明和影響範圍
+
+2. **在 `TASKS_TRACKING.md` 中更新任務**
+   - 新任務開始 → 加到「進行中」並設定預期完成日期
+   - 任務完成 → 移到「已完成」
+   - 發現新工作 → 加到「待辦」
+
+### 詳細指南
+
+完整的範例和說明請見: `/CodeProject/.agent/rules/shared-rules.md`
+
+---
+
+## 需要跨層修改時 (Cross-Layer Modification Required)
+
+如果你需要修改 **shared-infra、supabase-infra 或根層文檔**，**不要直接修改**。改為提交修改申請讓母 Agent 協調。
+
+### 何時需要提交申請？
+
+✅ **需要提交申請的情況：**
+- 新增或修改 `shared-infra/` 中的共享函數、元件或工具
+- 修改 `supabase-infra/` 的資料庫 schema 或 Edge Functions
+- 修改根層文檔（CLAUDE.md、DEPENDENCY_MAP.md 等）
+- 提取新的共享元件到 shared-infra
+- 修改跨專案的依賴版本
+
+❌ **可以直接修改的情況：**
+- 你的子專案內部的任何文件
+
+### 如何提交申請？
+
+1. **編輯 `/.agent/proposals.md`**（母倉庫根層）
+   - 在「現有申請」部分新增你的申請區塊
+   - 使用下面的模板
+
+2. **提案模板**
+```markdown
+### [YYYY-MM-DD] 申請來自：QCChelper
+
+**申請修改**：
+- 檔案路徑: `/shared-infra/packages/utils/qcc_metrics.py`
+- 簡要說明修改內容: 新增品管圈指標計算共享函數
+
+**原因**：
+[詳細說明為什麼需要]
+
+**具體改法**：
+[提出具體的代碼或詳細改動說明]
+
+**影響評估**：
+[列出會影響哪些其他子專案]
+
+**相關背景**：
+[GitHub issue 連結或 AGENT_LOG.md 條目]
+
+**狀態**: 待審核
+```
+
+3. **等待母 Agent 反饋**
+   - 母 Agent 會在 `/.agent/coordination-notes.md` 中提出評估
+   - 可能批准、拒絕或提議修改方案
+   - 檢查你的子專案目錄內的 `AGENT_LOG.md` 有沒有新訊息（母 Agent 也可能直接在 AGENT_LOG.md 中留言）
+
+4. **理解決策，記錄在 AGENT_LOG.md**
+   - 一旦母 Agent 做出決策，在你的 AGENT_LOG.md 中記錄決策和後續行動
+   - 例如：「母 Agent 批准添加 qcc_metrics.py，已更新依賴版本至 0.1.2」
+
+### 緊急情況（Hotfix）
+
+如果 shared-infra 有 **嚴重 bug 阻擋你的開發**：
+
+1. 在 `/.agent/proposals.md` 中標記為「**🚨 緊急** - [簡要說明]」
+2. 母 Agent 看到「緊急」標籤會優先處理
+3. **不要自行修改** - 等待母 Agent 批准，以防其他子 Agent 同時也在改
+
+### 🔗 相關資訊
+
+- 提案管理: `/.agent/proposals.md`
+- 母 Agent 給你的反饋: `/.agent/coordination-notes.md`（存在於本子專案根層當母 Agent 有反饋時）
+- 跨層修改詳細規則: `/.agent/rules/shared-rules.md` 中的「❌ 跨層修改規則」章節
+
+---
+
 ## 專案狀態
 
 | 項目 | 狀態 |
